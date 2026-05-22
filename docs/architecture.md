@@ -23,8 +23,8 @@ Each service has a clearly defined bounded context with specific database access
 ### API Gateway
 **Responsibility:** Task management and user-facing API  
 **Database Access:**
-- ✅ Full read/write access to `tasks` table
-- ❌ No access to `execution_history` table
+- Full read/write access to `tasks` table
+- No access to `execution_history` table
 
 **Operations:**
 - Create, read, update, delete tasks
