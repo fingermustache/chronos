@@ -42,4 +42,4 @@ Implement **Service-Oriented Architecture with Bounded Contexts**:
 
 **Monolithic:** Rejected - doesn't show distributed systems skills  
 **Microservices with separate DBs:** Rejected - too complex for personal project  
-**Serverless:** Rejected - vendor lock-in, cold start issues
+
