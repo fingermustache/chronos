@@ -4,7 +4,7 @@
 ## Project Overview: "Chronos" 
 ### Distributed Task Scheduler
 
-A task scheduling system with microservices architecture, demonstrating concurrency, distributed systems patterns, and modern Go practices.
+A task scheduling system, demonstrating concurrency, distributed systems patterns, and modern Go practices.
 
 Project currently being planned in this [GitHub Project](https://github.com/users/fingermustache/projects/1).
 
