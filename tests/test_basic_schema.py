@@ -23,7 +23,7 @@ def fresh_schema(db_conn):
 def test_task_insert_softdelete_cascade(db_conn):
     cur = db_conn.cursor()
 
-    # 1️⃣ Insert a task with a concrete next_execution_time
+    # Insert a task with a concrete next_execution_time
     task_id = uuid.uuid4()
     cur.execute(
         """
@@ -49,7 +49,7 @@ def test_task_insert_softdelete_cascade(db_conn):
     plan = "\n".join(row[0] for row in cur.fetchall())
     assert "Index Scan" in plan and "idx_tasks_next_execution" in plan
 
-    # 2️⃣ Soft‑delete the task
+    # Soft‑delete the task
     cur.execute("UPDATE tasks SET deleted_at = now() WHERE id = %s", (str(task_id),))
 
     cur.execute(
@@ -57,7 +57,7 @@ def test_task_insert_softdelete_cascade(db_conn):
     )
     assert cur.fetchone()[0] == 0
 
-    # 3️⃣ Hard‑delete cascade test
+    # Hard‑delete cascade test
     hard_task_id = uuid.uuid4()
     cur.execute(
         """
