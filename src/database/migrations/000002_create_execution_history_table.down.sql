@@ -6,4 +6,9 @@
 --              for migration 000002.
 -- ------------------------------------------------------------
 
+DROP INDEX IF EXISTS idx_execution_history_task_id;
+DROP INDEX IF EXISTS idx_execution_history_started_at;
+DROP INDEX IF EXISTS idx_execution_history_status;
+DROP INDEX IF EXISTS idx_execution_history_task_started;
+DROP INDEX IF EXISTS idx_execution_history_task_status_started;
 DROP TABLE IF EXISTS execution_history;
