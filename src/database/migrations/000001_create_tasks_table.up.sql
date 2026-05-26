@@ -1,3 +1,11 @@
+-- ------------------------------------------------------------
+-- Migration:   000001_create_tasks_table
+-- Version:     2026-05-25
+-- Purpose:     Create the core `tasks` table and supporting
+--              trigger/function for automatic `updated_at`
+--              handling, plus indexes for scheduler performance.
+-- ------------------------------------------------------------
+
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 

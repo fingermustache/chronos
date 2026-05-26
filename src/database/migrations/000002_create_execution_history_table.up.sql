@@ -1,3 +1,12 @@
+-- ------------------------------------------------------------
+-- Migration:   000002_create_execution_history_table
+-- Version:     2026-05-25
+-- Purpose:     Create the `execution_history` table that stores an
+--              audit log of every task run, together with useful
+--              indexes for fast lookup by task, start time, status,
+--              and the common (task_id, status, started_at) pattern.
+-- ------------------------------------------------------------
+
 -- Execution history table
 CREATE TABLE execution_history (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
