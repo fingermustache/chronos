@@ -1,11 +1,11 @@
 -- ------------------------------------------------------------
 -- Migration:   000001_create_tasks_table (down)
 -- Version:     2026-05-25
--- Purpose:     Drop the `tasks` table, its trigger, function,
---              and the UUID extension – clean rollback.
+-- Purpose:     Remove the `tasks` table, its trigger, and its
+--              dedicated trigger function.  Do NOT drop the
+--              shared uuid-ossp extension.
 -- ------------------------------------------------------------
 
-DROP TRIGGER IF EXISTS update_tasks_updated_at ON tasks;
-DROP FUNCTION IF EXISTS update_updated_at_column();
+DROP TRIGGER IF EXISTS tasks_set_updated_at ON tasks;
+DROP FUNCTION IF EXISTS tasks_set_updated_at();
 DROP TABLE IF EXISTS tasks;
-DROP EXTENSION IF EXISTS "uuid-ossp";
