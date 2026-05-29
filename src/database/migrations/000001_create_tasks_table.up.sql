@@ -48,6 +48,10 @@ CREATE INDEX idx_tasks_schedule_type
 CREATE INDEX idx_tasks_deleted_at
     ON tasks(deleted_at);
 
+CREATE UNIQUE INDEX idx_tasks_name_active_unique
+  ON tasks (name)
+  WHERE deleted_at IS NULL;
+
 -- Namespaced trigger function (schema‑wide, not product‑specific)
 CREATE OR REPLACE FUNCTION tasks_set_updated_at()
 RETURNS TRIGGER AS $$

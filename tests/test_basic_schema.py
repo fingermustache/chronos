@@ -70,8 +70,9 @@ def test_task_insert_softdelete_cascade(db_conn):
     )
     cur.execute(
         """
-        INSERT INTO execution_history (task_id, status)
-        VALUES (%s, 'running'), (%s, 'success')
+        INSERT INTO execution_history (task_id, status, started_at)
+        VALUES (%s, 'running', now()),
+               (%s, 'success', now() + interval '1 second')
         """,
         (str(hard_task_id), str(hard_task_id))
     )
