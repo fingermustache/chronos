@@ -8,4 +8,5 @@
 
 DROP TRIGGER IF EXISTS tasks_set_updated_at ON tasks;
 DROP FUNCTION IF EXISTS tasks_set_updated_at();
+DROP INDEX IF EXISTS idx_tasks_name_active_unique;
 DROP TABLE IF EXISTS tasks;
