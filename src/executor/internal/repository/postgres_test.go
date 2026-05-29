@@ -22,7 +22,7 @@ func TestMain(m *testing.M) {
 	ctx := context.Background()
 	db, teardown := testutil.NewTestDBWithTeardown(ctx)
 	testDB = db
-	testRepo = repository.NewExecutionRepository(testDB) // whatever the constructor is
+	testRepo = repository.NewExecutionRepository(testDB)
 
 	code := m.Run()
 	teardown()

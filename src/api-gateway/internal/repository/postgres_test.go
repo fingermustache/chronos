@@ -24,7 +24,7 @@ func TestMain(m *testing.M) {
 	ctx := context.Background()
 	db, teardown := testutil.NewTestDBWithTeardown(ctx)
 	testDB = db
-	testRepo = repository.NewTaskRepository(testDB) // whatever the constructor is
+	testRepo = repository.NewTaskRepository(testDB)
 
 	code := m.Run()
 	teardown()
