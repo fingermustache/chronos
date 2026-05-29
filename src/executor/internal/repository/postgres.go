@@ -71,13 +71,7 @@ func (r *executionRepository) UpdateStatus(ctx context.Context, id uuid.UUID, pa
 		"duration_ms":   params.DurationMs,
 	}
 
-	stmt, err := r.db.PrepareNamedContext(ctx, query)
-	if err != nil {
-		return fmt.Errorf("failed to prepare update execution: %w", err)
-	}
-	defer stmt.Close()
-
-	result, err := stmt.ExecContext(ctx, args)
+	result, err := r.db.NamedExecContext(ctx, query, args)
 	if err != nil {
 		return fmt.Errorf("failed to update execution status: %w", err)
 	}
