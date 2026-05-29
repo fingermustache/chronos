@@ -132,6 +132,7 @@ func TestGetByID_NotFound(t *testing.T) {
 	}
 }
 
+// The api-gateway tests uses Delete() through the repo, not direct sql
 func TestGetByID_SoftDeletedNotFound(t *testing.T) {
 	truncate(t)
 	ctx := context.Background()
