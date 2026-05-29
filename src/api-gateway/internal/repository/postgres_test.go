@@ -2,6 +2,7 @@ package repository_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/fingermustache/chronos/pkg/models"
 	"github.com/fingermustache/chronos/pkg/testutil"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 var (
@@ -39,7 +41,7 @@ func truncate(t *testing.T) {
 func createParams(overrides ...func(*repository.CreateTaskParams)) repository.CreateTaskParams {
 	p := repository.CreateTaskParams{
 		Name:           "test-task",
-		Description:    "a test task",
+		Description:    ptr("a test task"),
 		ScheduleType:   models.ScheduleTypeCron,
 		ScheduleConfig: models.JSONB{"cron_expr": "0 * * * *"},
 		TaskType:       models.TaskTypeHTTP,
@@ -52,6 +54,8 @@ func createParams(overrides ...func(*repository.CreateTaskParams)) repository.Cr
 	}
 	return p
 }
+
+func ptr[T any](v T) *T { return &v }
 
 // tests
 
@@ -91,6 +95,16 @@ func TestCreate_DuplicateNameRejected(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unique constraint violation, got nil")
 	}
+
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		if pgErr.Code == "23505" {
+			// unique_violation
+			return
+		}
+	}
+
+	t.Fatalf("expected unique constraint violation, got: %v", err)
 }
 
 func TestGetByID(t *testing.T) {
