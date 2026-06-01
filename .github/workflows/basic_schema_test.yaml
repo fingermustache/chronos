@@ -1,4 +1,4 @@
-name: Run DB Tests
+name: Run DB Schema Tests
 
 on:
   pull_request:
