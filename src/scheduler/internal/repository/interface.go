@@ -8,8 +8,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// TaskRepository is read-only. The scheduler never mutates task definitions —
-// it only reads due tasks and writes back the next execution time.
+// TaskRepository defines the scheduler's narrow view of the tasks table.
+// It reads task definitions but only writes next_execution_time — it never
+// mutates task configuration or lifecycle state.
 type TaskRepository interface {
 	GetDueTasks(ctx context.Context, limit int) ([]*models.Task, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*models.Task, error)

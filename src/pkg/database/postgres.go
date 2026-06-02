@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -56,8 +57,12 @@ type DB struct {
 
 func New(cfg Config) (*DB, error) {
 	dsn := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.Database, cfg.SSLMode,
+		"postgres://%s:%s@%s:%d/%s?sslmode=%s",
+		url.QueryEscape(cfg.User),
+		url.QueryEscape(cfg.Password),
+		cfg.Host, cfg.Port,
+		cfg.Database,
+		cfg.SSLMode,
 	)
 
 	db, err := sqlx.Connect("pgx", dsn)
@@ -77,24 +82,17 @@ func New(cfg Config) (*DB, error) {
 	return &DB{db}, nil
 }
 
-// WithTx runs fn inside a transaction. Rolls back automatically on
-// any error returned from fn, commits otherwise.
 func (db *DB) WithTx(ctx context.Context, fn func(Querier) error) error {
 	tx, err := db.BeginTxx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
+	defer func() { _ = tx.Rollback() }() // no-op after Commit
 
 	if err := fn(tx); err != nil {
-		_ = tx.Rollback()
 		return err
 	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	return nil
+	return tx.Commit()
 }
 
 func (db *DB) Close() error {

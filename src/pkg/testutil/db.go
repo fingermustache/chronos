@@ -132,11 +132,17 @@ func NewTestDBWithTeardown(ctx context.Context) (*database.DB, func()) {
 	return db, teardown
 }
 
-// Truncate clears the given tables between tests without tearing down
-// the schema. Call it at the start of each test that needs a clean slate.
+var validTables = map[string]bool{
+	"tasks":             true,
+	"execution_history": true,
+}
+
 func Truncate(t *testing.T, db *database.DB, tables ...string) {
 	t.Helper()
 	for _, table := range tables {
+		if !validTables[table] {
+			t.Fatalf("truncate: unknown table %q", table)
+		}
 		if _, err := db.Exec("TRUNCATE TABLE " + table + " CASCADE"); err != nil {
 			t.Fatalf("truncate %s: %v", table, err)
 		}

@@ -60,7 +60,8 @@ func (j *JSONB) Scan(value interface{}) error {
 	var b []byte
 	switch v := value.(type) {
 	case []byte:
-		b = v
+		b = make([]byte, len(v))
+		copy(b, v)
 	case string:
 		b = []byte(v)
 	default:
