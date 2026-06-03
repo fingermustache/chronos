@@ -1,0 +1,21 @@
+# docker-compose.yml
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: chronos-dev
+    environment:
+      POSTGRES_USER: chronos
+      POSTGRES_PASSWORD: chronos
+      POSTGRES_DB: chronos
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - chronos-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chronos"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  chronos-data:
