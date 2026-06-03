@@ -1,6 +1,4 @@
--- src/database/seed.sql
 TRUNCATE tasks CASCADE;
-
 INSERT INTO tasks (
     id, name, schedule_type, schedule_config,
     task_type, task_config, max_retries, timeout_seconds
@@ -8,7 +6,7 @@ INSERT INTO tasks (
 (
     gen_random_uuid(), 'Health Check',
     'cron', '{"expression": "* * * * *"}',
-    'http', '{"url": "http://localhost:8080/health", "method": "GET"}',
+    'http', '{"url": "http://api:8080/health", "method": "GET"}',
     3, 30
 ),
 (
@@ -20,6 +18,6 @@ INSERT INTO tasks (
 (
     gen_random_uuid(), 'One-off Migration',
     'once', '{"run_at": "2026-12-01T00:00:00Z"}',
-    'grpc', '{"address": "localhost:50051", "service": "Worker", "method": "Run"}',
+    'grpc', '{"address": "worker:50051", "service": "Worker", "method": "Run"}',
     0, 120
 );
