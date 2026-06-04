@@ -1,0 +1,62 @@
+name: DB seed check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  db-seed:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: chronos
+          POSTGRES_PASSWORD: chronos
+          POSTGRES_DB: chronos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U chronos -d chronos"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_USER: chronos
+      DB_PASSWORD: chronos
+      DB_NAME: chronos
+      DB_SSLMODE: disable
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Install migrate and psql
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+          curl -L https://github.com/golang-migrate/migrate/releases/download/v4.18.3/migrate.linux-amd64.tar.gz \
+            | tar xz
+          sudo mv migrate /usr/local/bin/migrate
+
+      - name: Run migrations
+        run: make db/migrate
+
+      - name: Run seed
+        run: make db/seed
+
+      - name: Verify seeded rows exist
+        run: |
+          psql "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=${DB_SSLMODE}" -c \
+            "SELECT id, name, task_type FROM tasks;"
+
+      - name: Assert expected seed count
+        run: |
+          count=$(psql "postgres://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=${DB_SSLMODE}" -tAc \
+            "SELECT COUNT(*) FROM tasks;")
+          test "$count" = "3"

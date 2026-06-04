@@ -1,0 +1,24 @@
+name: Go Integration Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  go-test:
+    name: Go Repository Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/go.mod
+          cache-dependency-path: src/go.sum
+
+      - name: Run tests
+        working-directory: src
+        run: go test ./api-gateway/... ./scheduler/... ./executor/...
