@@ -43,6 +43,7 @@ jobs:
           sudo apt-get install -y postgresql-client curl
           curl -fsSL -o /tmp/migrate.tar.gz \
             "https://github.com/golang-migrate/migrate/releases/download/${MIGRATE_VERSION}/migrate.linux-amd64.tar.gz"
+          sha256sum /tmp/migrate.tar.gz
           echo "${MIGRATE_CHECKSUM}  /tmp/migrate.tar.gz" | sha256sum -c -
           tar -xzf /tmp/migrate.tar.gz -C /tmp
           sudo mv /tmp/migrate /usr/local/bin/migrate
