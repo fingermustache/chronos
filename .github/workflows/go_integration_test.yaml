@@ -1,10 +1,9 @@
 name: Go Integration Tests
 
 on:
-  push:
-    branches: [main]
   pull_request:
-    branches: [main]
+    branches: ["main"]
+
 
 jobs:
   go-test:
