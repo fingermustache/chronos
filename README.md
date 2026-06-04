@@ -13,6 +13,7 @@ Project currently being planned in this [GitHub Project](https://github.com/user
 - [Documentation](https://github.com/fingermustache/chronos/blob/main/docs/architecture.md)
 
 ## Database setup
+cp .env.example .env
 
 ```bash
 # first time setup
@@ -21,7 +22,7 @@ make db/migrate
 make db/seed
 
 # check it worked
-psql postgres://chronos:chronos@localhost:5432/chronos -c "SELECT id, name, task_type FROM tasks;"
+psql postgres://chronos:chronos@localhost:{port}/chronos -c "SELECT id, name, task_type FROM tasks;"
 
 # full reset back to clean seeded state anytime
 make db/reset
