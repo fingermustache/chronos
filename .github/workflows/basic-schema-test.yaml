@@ -4,13 +4,16 @@ on:
   pull_request:
     branches: ["main"]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
 
     services:
       postgres:
-        image: postgres:15
+        image: postgres:16
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -36,5 +39,4 @@ jobs:
         run: pip install pytest psycopg2-binary
 
       - name: Run tests
-        working-directory: ${{ github.workspace }}
         run: pytest -q tests/test_basic_schema.py
