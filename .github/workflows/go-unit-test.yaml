@@ -22,4 +22,6 @@ jobs:
 
       - name: Run unit tests
         working-directory: src
-        run: go test -race -timeout 120s ./pkg/...
+        # No -tags integration means postgres_test.go files are skipped.
+        # Covers all packages: pkg, middleware, handlers, server integration tests.
+        run: go test -race -timeout 30s ./...
