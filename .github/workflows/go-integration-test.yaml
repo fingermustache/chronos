@@ -7,9 +7,8 @@ on:
 permissions:
   contents: read
 
-
 jobs:
-  go-test:
+  go-integration-tests:
     name: Go Repository Tests
     runs-on: ubuntu-latest
 
@@ -21,6 +20,8 @@ jobs:
           go-version-file: src/go.mod
           cache-dependency-path: src/go.sum
 
-      - name: Run tests
+      - name: Run integration tests
         working-directory: src
-        run: go test -race -timeout 120s ./api-gateway/... ./scheduler/... ./executor/...
+        # -tags integration unlocks the postgres_test.go files.
+        # Testcontainers handles Docker setup automatically on ubuntu-latest.
+        run: go test -race -timeout 120s -tags integration ./api-gateway/... ./scheduler/... ./executor/...
