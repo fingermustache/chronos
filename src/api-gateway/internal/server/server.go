@@ -17,18 +17,26 @@ import (
 func New(cfg config.Config, logger *slog.Logger) *http.Server {
 	r := chi.NewRouter()
 
-	// Middleware runs top to bottom on every request
 	rateLimiter := middleware.NewRateLimiter(cfg.RateLimitRPM)
 
+	// Global middleware — runs on every request regardless of route
 	r.Use(middleware.Recovery(logger)) // outermost — catches panics everywhere
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Logger(logger))
 	r.Use(middleware.CORS)
 	r.Use(rateLimiter.Middleware(logger))
-	r.Use(middleware.Auth(logger))
 
-	// Routes
-	r.Get("/health", handler.Health(logger))
+	// Public routes — no auth required
+	r.Group(func(r chi.Router) {
+		r.Get("/health", handler.Health(logger))
+	})
+
+	// Protected routes — auth required
+	// Auth is scoped here only, not in the global stack above
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.Auth(logger))
+		// r.Get("/tasks", handler.ListTasks(logger))
+	})
 
 	return &http.Server{
 		Addr:         ":" + cfg.Port,
