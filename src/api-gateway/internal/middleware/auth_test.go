@@ -11,6 +11,7 @@ import (
 )
 
 func authHandler(t *testing.T, logger *slog.Logger) http.Handler {
+	t.Helper()
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
@@ -68,19 +69,5 @@ func TestAuth_ValidBearerTokenPasses(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
-	}
-}
-
-func TestAuth_HealthEndpointSkipsAuth(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
-	// No Authorization header — should still pass because /health is exempt
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
-	w := httptest.NewRecorder()
-
-	authHandler(t, logger).ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200 for /health with no token, got %d", w.Code)
 	}
 }

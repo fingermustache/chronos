@@ -6,17 +6,15 @@ import (
 	"strings"
 )
 
-// Auth validates the Bearer token format on every request except /health.
+// Auth validates the Bearer token format on every request it is applied to.
+// Mount this middleware only on protected route groups in server.go — do not
+// add public routes (e.g. /health) to those groups.
+//
 // Phase 1: structural check only.
 // Phase 2: replace the TODO with real JWT verification (e.g. golang-jwt/jwt).
 func Auth(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == "/health" {
-				next.ServeHTTP(w, r)
-				return
-			}
-
 			header := r.Header.Get("Authorization")
 			if header == "" {
 				http.Error(w, "missing authorization header", http.StatusUnauthorized)
@@ -29,7 +27,7 @@ func Auth(logger *slog.Logger) func(http.Handler) http.Handler {
 				return
 			}
 
-			// TODO Phase 2: verify parts[1] as a signed JWT
+			// TODO Phase 2: verify parts[1] as a signed JWT.
 			logger.Debug("auth stub: format valid, skipping signature verification",
 				"id", GetRequestID(r.Context()),
 			)
