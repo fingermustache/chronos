@@ -20,15 +20,15 @@ func New(cfg config.Config, logger *slog.Logger) *http.Server {
 	// Middleware runs top to bottom on every request
 	rateLimiter := middleware.NewRateLimiter(cfg.RateLimitRPM)
 
+	r.Use(middleware.Recovery(logger)) // outermost — catches panics everywhere
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Logger(logger))
-	r.Use(middleware.Recovery(logger))
 	r.Use(middleware.CORS)
 	r.Use(rateLimiter.Middleware(logger))
 	r.Use(middleware.Auth(logger))
 
 	// Routes
-	r.Get("/health", handler.Health)
+	r.Get("/health", handler.Health(logger))
 
 	return &http.Server{
 		Addr:         ":" + cfg.Port,

@@ -2,6 +2,8 @@ package handler_test
 
 import (
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,10 +12,12 @@ import (
 )
 
 func TestHealth(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
 
-	handler.Health(w, req)
+	handler.Health(logger).ServeHTTP(w, req)
 
 	res := w.Result()
 

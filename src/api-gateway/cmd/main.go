@@ -15,29 +15,28 @@ import (
 
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
-
 	cfg := config.Load()
-
 	srv := server.New(cfg, logger)
 
-	// Start the server in a goroutine so the main goroutine is free
-	// to block on the shutdown signal below
+	serverErr := make(chan error, 1)
 	go func() {
 		logger.Info("api gateway starting", "port", cfg.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Error("server error", "error", err)
-			os.Exit(1)
+			serverErr <- err
 		}
 	}()
 
-	// Block until we receive SIGTERM (Kubernetes/Docker) or SIGINT (Ctrl+C)
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
-	<-quit
 
-	logger.Info("shutdown signal received, draining connections...")
+	select {
+	case err := <-serverErr:
+		logger.Error("server failed to start", "error", err)
+		os.Exit(1)
+	case <-quit:
+		logger.Info("shutdown signal received, draining connections...")
+	}
 
-	// Give in-flight requests 30 seconds to finish before forcing close
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 

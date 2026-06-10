@@ -2,33 +2,37 @@ package middleware
 
 import (
 	"context"
-	"fmt"
+	"crypto/rand"
+	"encoding/hex"
 	"net/http"
-	"time"
 )
 
 type contextKey string
 
-const RequestIDKey contextKey = "request_id"
+const requestIDKey contextKey = "request_id" // unexported
 
-// RequestID stamps every request with a unique ID and threads it through context.
-// Must be first in the middleware chain so all subsequent middleware can use it.
+func generateID() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return "unknown"
+	}
+	return hex.EncodeToString(b)
+}
+
 func RequestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get("X-Request-ID")
 		if id == "" {
-			id = fmt.Sprintf("%d", time.Now().UnixNano())
+			id = generateID()
 		}
-
-		ctx := context.WithValue(r.Context(), RequestIDKey, id)
+		ctx := context.WithValue(r.Context(), requestIDKey, id)
 		w.Header().Set("X-Request-ID", id)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
-// GetRequestID is a helper so any handler or middleware can pull the ID from context.
 func GetRequestID(ctx context.Context) string {
-	if id, ok := ctx.Value(RequestIDKey).(string); ok {
+	if id, ok := ctx.Value(requestIDKey).(string); ok {
 		return id
 	}
 	return "unknown"
