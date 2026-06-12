@@ -174,3 +174,19 @@ func TestIntegration_RateLimiterBlocksAfterLimit(t *testing.T) {
 		t.Error("expected Retry-After header on 429 response")
 	}
 }
+
+func TestIntegration_ValidationRejectsInvalidContentType(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/health", nil)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusUnsupportedMediaType {
+		t.Errorf("expected 415, got %d", res.StatusCode)
+	}
+}

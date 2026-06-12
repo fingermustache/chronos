@@ -25,6 +25,7 @@ func New(cfg config.Config, logger *slog.Logger) *http.Server {
 	r.Use(middleware.Logger(logger))
 	r.Use(middleware.CORS)
 	r.Use(rateLimiter.Middleware(logger))
+	r.Use(middleware.Validation)
 
 	// Public routes — no auth required
 	r.Group(func(r chi.Router) {
