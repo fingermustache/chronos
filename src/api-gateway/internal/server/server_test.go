@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/fingermustache/chronos/api-gateway/internal/config"
@@ -175,11 +176,27 @@ func TestIntegration_RateLimiterBlocksAfterLimit(t *testing.T) {
 	}
 }
 
-func TestIntegration_ValidationRejectsInvalidContentType(t *testing.T) {
+func TestIntegration_ValidationAllowsMutationWithoutBody(t *testing.T) {
 	ts := newTestServer(t)
 	defer ts.Close()
 
 	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/health", nil)
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode == http.StatusUnsupportedMediaType {
+		t.Fatalf("expected non-415 for bodyless POST, got %d", res.StatusCode)
+	}
+}
+
+func TestIntegration_ValidationRejectsBodyWithoutContentType(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/health", strings.NewReader(`{"ok":true}`))
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
