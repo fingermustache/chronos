@@ -1,8 +1,8 @@
 package middleware
 
 import (
+	"mime"
 	"net/http"
-	"strings"
 )
 
 // Validation checks basic request structure before it reaches a handler.
@@ -11,12 +11,16 @@ import (
 func Validation(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch {
-			ct := r.Header.Get("Content-Type")
-			if !strings.HasPrefix(ct, "application/json") {
-				http.Error(w, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
-				return
+			hasBody := r.Body != nil && (r.ContentLength > 0 || len(r.TransferEncoding) > 0)
+			if hasBody {
+				mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+				if err != nil || mediaType != "application/json" {
+					http.Error(w, "Content-Type must be application/json", http.StatusUnsupportedMediaType)
+					return
+				}
 			}
 		}
+
 		next.ServeHTTP(w, r)
 	})
 }
