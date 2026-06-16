@@ -3,6 +3,7 @@ package middleware_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/fingermustache/chronos/api-gateway/internal/middleware"
@@ -23,12 +24,33 @@ func TestValidation_AllowsGetWithoutContentType(t *testing.T) {
 	}
 }
 
+func TestValidation_AllowsMutationWithoutBody(t *testing.T) {
+	methods := []string{http.MethodPost, http.MethodPut, http.MethodPatch}
+
+	for _, method := range methods {
+		t.Run(method, func(t *testing.T) {
+			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			})
+
+			req := httptest.NewRequest(method, "/tasks", nil)
+			w := httptest.NewRecorder()
+
+			middleware.Validation(next).ServeHTTP(w, req)
+
+			if w.Code != http.StatusOK {
+				t.Errorf("expected 200, got %d", w.Code)
+			}
+		})
+	}
+}
+
 func TestValidation_AllowsPostWithJSONContentType(t *testing.T) {
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/tasks", nil)
+	req := httptest.NewRequest(http.MethodPost, "/tasks", strings.NewReader(`{"title":"test"}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
@@ -44,7 +66,7 @@ func TestValidation_AllowsPostWithJSONContentTypeAndCharset(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/tasks", nil)
+	req := httptest.NewRequest(http.MethodPost, "/tasks", strings.NewReader(`{"title":"test"}`))
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	w := httptest.NewRecorder()
 
@@ -55,16 +77,16 @@ func TestValidation_AllowsPostWithJSONContentTypeAndCharset(t *testing.T) {
 	}
 }
 
-func TestValidation_BlocksMutationWithoutContentType(t *testing.T) {
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Error("handler should not be called")
-	})
-
+func TestValidation_BlocksMutationWithBodyAndNoContentType(t *testing.T) {
 	methods := []string{http.MethodPost, http.MethodPut, http.MethodPatch}
 
 	for _, method := range methods {
 		t.Run(method, func(t *testing.T) {
-			req := httptest.NewRequest(method, "/tasks", nil)
+			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				t.Error("handler should not be called")
+			})
+
+			req := httptest.NewRequest(method, "/tasks", strings.NewReader(`{"title":"test"}`))
 			w := httptest.NewRecorder()
 
 			middleware.Validation(next).ServeHTTP(w, req)
@@ -81,8 +103,24 @@ func TestValidation_BlocksMutationWithWrongContentType(t *testing.T) {
 		t.Error("handler should not be called")
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/tasks", nil)
+	req := httptest.NewRequest(http.MethodPost, "/tasks", strings.NewReader(`{"title":"test"}`))
 	req.Header.Set("Content-Type", "text/plain")
+	w := httptest.NewRecorder()
+
+	middleware.Validation(next).ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnsupportedMediaType {
+		t.Errorf("expected 415, got %d", w.Code)
+	}
+}
+
+func TestValidation_BlocksMutationWithMalformedContentType(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("handler should not be called")
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/tasks", strings.NewReader(`{"title":"test"}`))
+	req.Header.Set("Content-Type", `application/json; charset="utf-8`)
 	w := httptest.NewRecorder()
 
 	middleware.Validation(next).ServeHTTP(w, req)
