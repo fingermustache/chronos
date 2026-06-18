@@ -283,10 +283,11 @@ func TestList_InvalidCursor(t *testing.T) {
 func TestDelete_NotFound(t *testing.T) {
 	repo := &mockTaskRepo{
 		deleteFn: func(_ context.Context, _ uuid.UUID) error {
-			return errors.New("task not found: abc")
+			return repository.ErrTaskNotFound
 		},
 	}
 	svc := service.NewTaskService(repo)
+
 	err := svc.Delete(context.Background(), uuid.New())
 	if !errors.Is(err, service.ErrTaskNotFound) {
 		t.Errorf("expected ErrTaskNotFound, got %v", err)
