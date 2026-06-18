@@ -14,6 +14,7 @@ type TaskRepository interface {
 	Update(ctx context.Context, id uuid.UUID, params UpdateTaskParams) (*models.Task, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	Count(ctx context.Context) (int, error)
+	CountBefore(ctx context.Context, id uuid.UUID) (int, error)
 }
 
 type CreateTaskParams struct {
