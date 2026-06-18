@@ -116,8 +116,10 @@ func (s *taskService) Create(ctx context.Context, req CreateTaskRequest) (*model
 func (s *taskService) GetByID(ctx context.Context, id uuid.UUID) (*models.Task, error) {
 	task, err := s.repo.GetByID(ctx, id)
 	if err != nil {
-		// repository returns "task not found: <id>" — treat as not found
-		return nil, ErrTaskNotFound
+		if errors.Is(err, repository.ErrTaskNotFound) {
+			return nil, ErrTaskNotFound
+		}
+		return nil, fmt.Errorf("get task: %w", err)
 	}
 	return task, nil
 }
@@ -205,7 +207,10 @@ func (s *taskService) Update(ctx context.Context, id uuid.UUID, req UpdateTaskRe
 
 	task, err := s.repo.Update(ctx, id, params)
 	if err != nil {
-		return nil, ErrTaskNotFound
+		if errors.Is(err, repository.ErrTaskNotFound) {
+			return nil, ErrTaskNotFound
+		}
+		return nil, fmt.Errorf("update task: %w", err)
 	}
 
 	return task, nil
@@ -213,7 +218,10 @@ func (s *taskService) Update(ctx context.Context, id uuid.UUID, req UpdateTaskRe
 
 func (s *taskService) Delete(ctx context.Context, id uuid.UUID) error {
 	if err := s.repo.Delete(ctx, id); err != nil {
-		return ErrTaskNotFound
+		if errors.Is(err, repository.ErrTaskNotFound) {
+			return ErrTaskNotFound
+		}
+		return fmt.Errorf("delete task: %w", err)
 	}
 	return nil
 }

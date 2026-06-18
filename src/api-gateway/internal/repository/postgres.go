@@ -59,16 +59,18 @@ func (r *taskRepository) Create(ctx context.Context, params CreateTaskParams) (*
 
 func (r *taskRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Task, error) {
 	query := `
-		SELECT * FROM tasks
-		WHERE id = $1 AND deleted_at IS NULL
+	SELECT id, name, description, schedule_type, schedule_config, task_type, task_config,
+	       enabled, max_retries, timeout_seconds, created_at, updated_at, deleted_at
+	FROM tasks
+	WHERE id = $1 AND deleted_at IS NULL
 	`
 
 	var task models.Task
 	if err := r.db.GetContext(ctx, &task, query, id); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("task not found: %s", id)
+			return nil, ErrTaskNotFound
 		}
-		return nil, fmt.Errorf("failed to get task: %w", err)
+		return nil, fmt.Errorf("get task by id: %w", err)
 	}
 
 	return &task, nil
@@ -126,11 +128,11 @@ func (r *taskRepository) Update(ctx context.Context, id uuid.UUID, params Update
 	defer stmt.Close()
 
 	var task models.Task
-	if err := stmt.QueryRowxContext(ctx, args).StructScan(&task); err != nil {
+	if err := r.db.GetContext(ctx, &task, query, args...); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("task not found: %s", id)
+			return nil, ErrTaskNotFound
 		}
-		return nil, fmt.Errorf("failed to update task: %w", err)
+		return nil, fmt.Errorf("update task: %w", err)
 	}
 
 	return &task, nil
@@ -138,21 +140,22 @@ func (r *taskRepository) Update(ctx context.Context, id uuid.UUID, params Update
 
 func (r *taskRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	query := `
-		UPDATE tasks SET deleted_at = NOW()
-		WHERE id = $1 AND deleted_at IS NULL
+	UPDATE tasks
+	SET deleted_at = NOW()
+	WHERE id = $1 AND deleted_at IS NULL
 	`
 
 	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
-		return fmt.Errorf("failed to delete task: %w", err)
+		return fmt.Errorf("delete task: %w", err)
 	}
 
 	rows, err := result.RowsAffected()
 	if err != nil {
-		return fmt.Errorf("failed to confirm delete: %w", err)
+		return fmt.Errorf("delete task rows affected: %w", err)
 	}
 	if rows == 0 {
-		return fmt.Errorf("task not found: %s", id)
+		return ErrTaskNotFound
 	}
 
 	return nil
@@ -170,17 +173,39 @@ func (r *taskRepository) Count(ctx context.Context) (int, error) {
 }
 
 func (r *taskRepository) CountBefore(ctx context.Context, id uuid.UUID) (int, error) {
+	var exists bool
+	if err := r.db.GetContext(ctx, &exists, `
+		SELECT EXISTS (
+			SELECT 1 FROM tasks WHERE id = $1 AND deleted_at IS NULL
+		)
+	`, id); err != nil {
+		return 0, fmt.Errorf("check cursor existence: %w", err)
+	}
+	if !exists {
+		return 0, ErrTaskNotFound
+	}
+
 	query := `
-		SELECT COUNT(*)
+	WITH cursor_task AS (
+		SELECT id, created_at
 		FROM tasks
-		WHERE deleted_at IS NULL
-		  AND created_at > (
-		      SELECT created_at FROM tasks WHERE id = $1
-		  )
+		WHERE id = $1
+		  AND deleted_at IS NULL
+	)
+	SELECT COUNT(*)
+	FROM tasks t
+	CROSS JOIN cursor_task c
+	WHERE t.deleted_at IS NULL
+	  AND (
+		t.created_at > c.created_at OR
+		(t.created_at = c.created_at AND t.id > c.id)
+	  )
 	`
+
 	var count int
 	if err := r.db.GetContext(ctx, &count, query, id); err != nil {
 		return 0, fmt.Errorf("failed to count before cursor: %w", err)
 	}
+
 	return count, nil
 }
