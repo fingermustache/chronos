@@ -26,7 +26,10 @@ func NewTaskHandler(svc service.TaskService, logger *slog.Logger) *TaskHandler {
 // POST /tasks
 func (h *TaskHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var req service.CreateTaskRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
@@ -107,7 +110,10 @@ func (h *TaskHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req service.UpdateTaskRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
