@@ -302,3 +302,80 @@ func TestCount(t *testing.T) {
 		t.Errorf("got count %d, want 2", count)
 	}
 }
+
+func TestCountBefore(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	// Create 5 tasks — they come back ordered by created_at DESC
+	var ids []uuid.UUID
+	for i := range 5 {
+		task, err := testRepo.Create(ctx, createParams(func(p *repository.CreateTaskParams) {
+			p.Name = fmt.Sprintf("task-%d", i)
+		}))
+		if err != nil {
+			t.Fatalf("setup failed: %v", err)
+		}
+		ids = append(ids, task.ID)
+	}
+
+	// List returns newest first. The cursor is the last task in the first page.
+	// tasks[0] = newest, tasks[4] = oldest
+	listed, err := testRepo.List(ctx, 5, 0)
+	if err != nil {
+		t.Fatalf("list failed: %v", err)
+	}
+
+	// CountBefore(tasks[2]) should return 2 — the two rows newer than it
+	cursorTask := listed[2]
+	count, err := testRepo.CountBefore(ctx, cursorTask.ID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("got CountBefore=%d, want 2", count)
+	}
+}
+
+func TestCountBefore_FirstPage(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	// Cursor is the very first (newest) task — nothing comes before it
+	task, _ := testRepo.Create(ctx, createParams())
+
+	count, err := testRepo.CountBefore(ctx, task.ID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("got CountBefore=%d, want 0", count)
+	}
+}
+
+func TestCountBefore_ExcludesSoftDeleted(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	var tasks []*models.Task
+	for i := range 4 {
+		task, _ := testRepo.Create(ctx, createParams(func(p *repository.CreateTaskParams) {
+			p.Name = fmt.Sprintf("task-%d", i)
+		}))
+		tasks = append(tasks, task)
+	}
+
+	listed, _ := testRepo.List(ctx, 4, 0)
+
+	// Soft-delete the newest task (listed[0])
+	_ = testRepo.Delete(ctx, listed[0].ID)
+
+	// CountBefore the third task (listed[2]) — only listed[1] is non-deleted and newer
+	count, err := testRepo.CountBefore(ctx, listed[2].ID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("got CountBefore=%d, want 1 (soft-deleted row excluded)", count)
+	}
+}
