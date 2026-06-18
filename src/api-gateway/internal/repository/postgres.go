@@ -128,7 +128,7 @@ func (r *taskRepository) Update(ctx context.Context, id uuid.UUID, params Update
 	defer stmt.Close()
 
 	var task models.Task
-	if err := r.db.GetContext(ctx, &task, query, args...); err != nil {
+	if err := stmt.GetContext(ctx, &task, args); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrTaskNotFound
 		}
