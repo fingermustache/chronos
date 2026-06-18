@@ -84,6 +84,12 @@ func (h *TaskHandler) List(w http.ResponseWriter, r *http.Request) {
 		Cursor: cursor,
 	})
 	if err != nil {
+		var ve *service.ValidationError
+		if errors.As(err, &ve) {
+			writeError(w, http.StatusBadRequest, ve.Error())
+			return
+		}
+
 		h.logger.Error("failed to list tasks", "error", err)
 		writeError(w, http.StatusInternalServerError, "internal server error")
 		return
