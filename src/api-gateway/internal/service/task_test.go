@@ -177,10 +177,11 @@ func TestGetByID_Found(t *testing.T) {
 func TestGetByID_NotFound(t *testing.T) {
 	repo := &mockTaskRepo{
 		getByIDFn: func(_ context.Context, _ uuid.UUID) (*models.Task, error) {
-			return nil, errors.New("task not found: abc")
+			return nil, repository.ErrTaskNotFound
 		},
 	}
 	svc := service.NewTaskService(repo)
+
 	_, err := svc.GetByID(context.Background(), uuid.New())
 	if !errors.Is(err, service.ErrTaskNotFound) {
 		t.Errorf("expected ErrTaskNotFound, got %v", err)
