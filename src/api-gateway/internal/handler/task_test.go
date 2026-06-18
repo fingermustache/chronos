@@ -31,18 +31,37 @@ type mockTaskService struct {
 }
 
 func (m *mockTaskService) Create(ctx context.Context, req service.CreateTaskRequest) (*models.Task, error) {
+	if m.createFn == nil {
+		return nil, errors.New("unexpected Create call")
+	}
 	return m.createFn(ctx, req)
 }
+
 func (m *mockTaskService) GetByID(ctx context.Context, id uuid.UUID) (*models.Task, error) {
+	if m.getByIDFn == nil {
+		return nil, errors.New("unexpected GetByID call")
+	}
 	return m.getByIDFn(ctx, id)
 }
+
 func (m *mockTaskService) List(ctx context.Context, req service.ListTasksRequest) (*service.ListTasksResponse, error) {
+	if m.listFn == nil {
+		return nil, errors.New("unexpected List call")
+	}
 	return m.listFn(ctx, req)
 }
+
 func (m *mockTaskService) Update(ctx context.Context, id uuid.UUID, req service.UpdateTaskRequest) (*models.Task, error) {
+	if m.updateFn == nil {
+		return nil, errors.New("unexpected Update call")
+	}
 	return m.updateFn(ctx, id, req)
 }
+
 func (m *mockTaskService) Delete(ctx context.Context, id uuid.UUID) error {
+	if m.deleteFn == nil {
+		return errors.New("unexpected Delete call")
+	}
 	return m.deleteFn(ctx, id)
 }
 
@@ -314,6 +333,22 @@ func TestList_LimitClamped(t *testing.T) {
 
 	if capturedReq.Limit != 20 {
 		t.Errorf("got limit %d, want 20 (clamped to default)", capturedReq.Limit)
+	}
+}
+
+func TestList_InvalidCursor_Returns400(t *testing.T) {
+	svc := &mockTaskService{
+		listFn: func(_ context.Context, _ service.ListTasksRequest) (*service.ListTasksResponse, error) {
+			return nil, &service.ValidationError{Message: "invalid cursor"}
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/tasks?cursor=bad", nil)
+	rec := httptest.NewRecorder()
+	newRouter(svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("got %d, want 400", rec.Code)
 	}
 }
 
