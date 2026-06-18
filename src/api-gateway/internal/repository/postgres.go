@@ -168,3 +168,19 @@ func (r *taskRepository) Count(ctx context.Context) (int, error) {
 
 	return count, nil
 }
+
+func (r *taskRepository) CountBefore(ctx context.Context, id uuid.UUID) (int, error) {
+	query := `
+		SELECT COUNT(*)
+		FROM tasks
+		WHERE deleted_at IS NULL
+		  AND created_at > (
+		      SELECT created_at FROM tasks WHERE id = $1
+		  )
+	`
+	var count int
+	if err := r.db.GetContext(ctx, &count, query, id); err != nil {
+		return 0, fmt.Errorf("failed to count before cursor: %w", err)
+	}
+	return count, nil
+}
