@@ -7,9 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/fingermustache/chronos/api-gateway/internal/repository"
 	"github.com/fingermustache/chronos/api-gateway/internal/service"
-	"github.com/fingermustache/chronos/pkg/models"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -177,19 +175,4 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(envelope{Error: msg})
-}
-
-// repositoryToServiceParams bridges the handler layer to the service layer.
-// Kept here so the service package has no knowledge of HTTP concerns.
-func toCreateParams(req service.CreateTaskRequest) repository.CreateTaskParams {
-	return repository.CreateTaskParams{
-		Name:           req.Name,
-		Description:    req.Description,
-		ScheduleType:   models.ScheduleType(req.ScheduleType),
-		ScheduleConfig: models.JSONB(req.ScheduleConfig),
-		TaskType:       models.TaskType(req.TaskType),
-		TaskConfig:     models.JSONB(req.TaskConfig),
-		MaxRetries:     req.MaxRetries,
-		TimeoutSeconds: req.TimeoutSeconds,
-	}
 }
