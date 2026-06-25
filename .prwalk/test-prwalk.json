@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "pr": {
+    "id": "9a091767-1d7f-4b10-8a1b-253f206e8408",
+    "branch": "test-prwalk",
+    "baseRef": "main",
+    "baseSha": "df0f25ec895d94ae46f6698aa994f069f266849b",
+    "headSha": "7df88ef9194876f74b6210016f8addea2bf0d809",
+    "title": "",
+    "description": "",
+    "createdAt": "2026-06-25T20:44:18.640Z",
+    "updatedAt": "2026-06-25T20:46:30.315Z",
+    "currentRound": 3,
+    "reviewLevel": null,
+    "issueKey": null,
+    "issueUrl": null,
+    "tracker": null
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "baseSha": "df0f25ec895d94ae46f6698aa994f069f266849b",
+      "headSha": "a23064c827fe7e60e6db6e85dbc2ba6aa3689c30",
+      "createdAt": "2026-06-25T20:44:18.640Z"
+    },
+    {
+      "round": 2,
+      "baseSha": "df0f25ec895d94ae46f6698aa994f069f266849b",
+      "headSha": "a23064c827fe7e60e6db6e85dbc2ba6aa3689c30",
+      "createdAt": "2026-06-25T20:45:36.552Z"
+    },
+    {
+      "round": 3,
+      "baseSha": "df0f25ec895d94ae46f6698aa994f069f266849b",
+      "headSha": "7df88ef9194876f74b6210016f8addea2bf0d809",
+      "createdAt": "2026-06-25T20:46:30.315Z"
+    }
+  ],
+  "sections": [],
+  "chunks": [
+    {
+      "stableId": "chk_f6ea1be1",
+      "revisionId": "rev_r1_06c915aa",
+      "round": 3,
+      "file": "src/api-gateway/internal/middleware/validation_test.go",
+      "previousFile": null,
+      "changeType": "modify",
+      "language": "go",
+      "order": 0,
+      "sectionId": null,
+      "sectionOrder": 0,
+      "anchor": {
+        "headerHash": "8965e99f336b",
+        "contentHash": "9ff739edad23",
+        "newStartLine": 1,
+        "oldStartLine": 1
+      },
+      "diff": {
+        "format": "unified",
+        "hunkHeader": "@@ -1,5 +1,3 @@",
+        "patch": "@@ -1,5 +1,3 @@\n-//go:build !integration\n-\n package middleware_test\n \n import (\n",
+        "addedLines": 0,
+        "removedLines": 2,
+        "truncated": false
+      },
+      "description": "",
+      "risk": 1,
+      "decision": {
+        "state": "pending",
+        "round": 1,
+        "feedback": null,
+        "via": "explicit",
+        "appliesToRevisionId": "rev_r1_06c915aa",
+        "decidedAt": null
+      },
+      "lineage": [],
+      "absent": false
+    }
+  ],
+  "events": [
+    {
+      "id": "evt_0000",
+      "ts": "2026-06-25T20:44:18.640Z",
+      "round": 1,
+      "type": "revision",
+      "chunkStableId": "chk_f6ea1be1",
+      "revisionId": "rev_r1_06c915aa",
+      "file": "src/api-gateway/internal/middleware/validation_test.go",
+      "patch": "@@ -1,5 +1,3 @@\n-//go:build !integration\n-\n package middleware_test\n \n import (\n",
+      "supersedes": null
+    }
+  ]
+}
