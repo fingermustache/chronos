@@ -5,12 +5,12 @@
     "branch": "test-prwalk",
     "baseRef": "main",
     "baseSha": "df0f25ec895d94ae46f6698aa994f069f266849b",
-    "headSha": "a23064c827fe7e60e6db6e85dbc2ba6aa3689c30",
+    "headSha": "7df88ef9194876f74b6210016f8addea2bf0d809",
     "title": "",
     "description": "",
     "createdAt": "2026-06-25T20:44:18.640Z",
-    "updatedAt": "2026-06-25T20:45:36.552Z",
-    "currentRound": 2,
+    "updatedAt": "2026-06-25T20:46:30.315Z",
+    "currentRound": 3,
     "reviewLevel": null,
     "issueKey": null,
     "issueUrl": null,
@@ -28,6 +28,12 @@
       "baseSha": "df0f25ec895d94ae46f6698aa994f069f266849b",
       "headSha": "a23064c827fe7e60e6db6e85dbc2ba6aa3689c30",
       "createdAt": "2026-06-25T20:45:36.552Z"
+    },
+    {
+      "round": 3,
+      "baseSha": "df0f25ec895d94ae46f6698aa994f069f266849b",
+      "headSha": "7df88ef9194876f74b6210016f8addea2bf0d809",
+      "createdAt": "2026-06-25T20:46:30.315Z"
     }
   ],
   "sections": [],
@@ -35,7 +41,7 @@
     {
       "stableId": "chk_f6ea1be1",
       "revisionId": "rev_r1_06c915aa",
-      "round": 2,
+      "round": 3,
       "file": "src/api-gateway/internal/middleware/validation_test.go",
       "previousFile": null,
       "changeType": "modify",
