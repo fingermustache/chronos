@@ -102,9 +102,6 @@ func (s *taskService) Create(ctx context.Context, req CreateTaskRequest) (*model
 	if params.MaxRetries == 0 {
 		params.MaxRetries = 3
 	}
-	if params.TimeoutSeconds == 0 {
-		params.TimeoutSeconds = 300
-	}
 
 	task, err := s.repo.Create(ctx, params)
 	if err != nil {
@@ -237,11 +234,13 @@ const (
 )
 
 func validateCreate(req CreateTaskRequest) error {
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
+	if req.Name == "" {
 		return &ValidationError{Message: "name is required"}
 	}
-	if len(name) > maxNameLength {
+	if req.Name != strings.TrimSpace(req.Name) {
+		return &ValidationError{Message: "name must not have leading or trailing whitespace"}
+	}
+	if len(req.Name) > maxNameLength {
 		return &ValidationError{Message: fmt.Sprintf("name must be %d characters or fewer", maxNameLength)}
 	}
 	if !models.ScheduleType(req.ScheduleType).IsValid() {
@@ -253,7 +252,7 @@ func validateCreate(req CreateTaskRequest) error {
 	if req.MaxRetries < 0 || req.MaxRetries > maxRetries {
 		return &ValidationError{Message: fmt.Sprintf("max_retries must be between 0 and %d", maxRetries)}
 	}
-	if req.TimeoutSeconds != 0 && (req.TimeoutSeconds < minTimeoutSeconds || req.TimeoutSeconds > maxTimeoutSeconds) {
+	if req.TimeoutSeconds < minTimeoutSeconds || req.TimeoutSeconds > maxTimeoutSeconds {
 		return &ValidationError{Message: fmt.Sprintf("timeout_seconds must be between %d and %d", minTimeoutSeconds, maxTimeoutSeconds)}
 	}
 	return nil
@@ -266,11 +265,13 @@ func validateUpdate(req UpdateTaskRequest) error {
 		return &ValidationError{Message: "request body must include at least one field to update"}
 	}
 	if req.Name != nil {
-		name := strings.TrimSpace(*req.Name)
-		if name == "" {
+		if *req.Name == "" {
 			return &ValidationError{Message: "name must not be empty"}
 		}
-		if len(name) > maxNameLength {
+		if *req.Name != strings.TrimSpace(*req.Name) {
+			return &ValidationError{Message: "name must not have leading or trailing whitespace"}
+		}
+		if len(*req.Name) > maxNameLength {
 			return &ValidationError{Message: fmt.Sprintf("name must be %d characters or fewer", maxNameLength)}
 		}
 	}

@@ -136,6 +136,28 @@ func TestCreate_WhitespaceOnlyName(t *testing.T) {
 	}
 }
 
+func TestCreate_NameWithLeadingWhitespace(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	req := validCreateReq()
+	req.Name = " foo"
+	_, err := svc.Create(context.Background(), req)
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError for name with leading whitespace, got %T: %v", err, err)
+	}
+}
+
+func TestCreate_NameWithTrailingWhitespace(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	req := validCreateReq()
+	req.Name = "foo "
+	_, err := svc.Create(context.Background(), req)
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError for name with trailing whitespace, got %T: %v", err, err)
+	}
+}
+
 func TestCreate_NameTooLong(t *testing.T) {
 	svc := service.NewTaskService(&mockTaskRepo{})
 	req := validCreateReq()
@@ -180,6 +202,17 @@ func TestCreate_TimeoutTooLow(t *testing.T) {
 	}
 }
 
+func TestCreate_ZeroTimeoutRejected(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	req := validCreateReq()
+	req.TimeoutSeconds = 0
+	_, err := svc.Create(context.Background(), req)
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError for zero timeout_seconds, got %T: %v", err, err)
+	}
+}
+
 func TestCreate_TimeoutExceedsLimit(t *testing.T) {
 	svc := service.NewTaskService(&mockTaskRepo{})
 	req := validCreateReq()
@@ -191,7 +224,7 @@ func TestCreate_TimeoutExceedsLimit(t *testing.T) {
 	}
 }
 
-func TestCreate_AppliesDefaults(t *testing.T) {
+func TestCreate_AppliesDefaultMaxRetries(t *testing.T) {
 	var captured repository.CreateTaskParams
 	repo := &mockTaskRepo{
 		createFn: func(_ context.Context, p repository.CreateTaskParams) (*models.Task, error) {
@@ -202,13 +235,9 @@ func TestCreate_AppliesDefaults(t *testing.T) {
 	svc := service.NewTaskService(repo)
 	req := validCreateReq()
 	req.MaxRetries = 0
-	req.TimeoutSeconds = 0
 	_, _ = svc.Create(context.Background(), req)
 	if captured.MaxRetries != 3 {
 		t.Errorf("expected default MaxRetries=3, got %d", captured.MaxRetries)
-	}
-	if captured.TimeoutSeconds != 300 {
-		t.Errorf("expected default TimeoutSeconds=300, got %d", captured.TimeoutSeconds)
 	}
 }
 
@@ -353,6 +382,16 @@ func TestUpdate_WhitespaceOnlyName(t *testing.T) {
 	var ve *service.ValidationError
 	if !errors.As(err, &ve) {
 		t.Fatalf("expected ValidationError, got %T: %v", err, err)
+	}
+}
+
+func TestUpdate_NameWithLeadingWhitespace(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	name := " foo"
+	_, err := svc.Update(context.Background(), uuid.New(), service.UpdateTaskRequest{Name: &name})
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError for name with leading whitespace, got %T: %v", err, err)
 	}
 }
 
