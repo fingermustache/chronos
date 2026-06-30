@@ -26,7 +26,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	srv := server.New(cfg, logger)
+	srv := server.New(cfg, logger, nil)
 	return httptest.NewServer(srv.Handler)
 }
 
@@ -146,7 +146,7 @@ func TestIntegration_RateLimiterBlocksAfterLimit(t *testing.T) {
 		RateLimitRPM: 3,
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	ts := httptest.NewServer(server.New(cfg, logger).Handler)
+	ts := httptest.NewServer(server.New(cfg, logger, nil).Handler)
 	defer ts.Close()
 
 	// First 3 requests should pass

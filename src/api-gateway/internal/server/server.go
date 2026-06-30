@@ -10,11 +10,12 @@ import (
 	"github.com/fingermustache/chronos/api-gateway/internal/config"
 	"github.com/fingermustache/chronos/api-gateway/internal/handler"
 	"github.com/fingermustache/chronos/api-gateway/internal/middleware"
+	"github.com/fingermustache/chronos/api-gateway/internal/service"
 )
 
 // New wires up the router, middleware stack, and routes, then returns
 // a configured http.Server ready to be started by main.
-func New(cfg config.Config, logger *slog.Logger) *http.Server {
+func New(cfg config.Config, logger *slog.Logger, taskSvc service.TaskService) *http.Server {
 	r := chi.NewRouter()
 
 	rateLimiter := middleware.NewRateLimiter(cfg.RateLimitRPM)
@@ -36,7 +37,13 @@ func New(cfg config.Config, logger *slog.Logger) *http.Server {
 	// Auth is scoped here only, not in the global stack above
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(logger))
-		// r.Get("/tasks", handler.ListTasks(logger))
+
+		tasks := handler.NewTaskHandler(taskSvc, logger)
+		r.Post("/tasks", tasks.Create)
+		r.Get("/tasks", tasks.List)
+		r.Get("/tasks/{id}", tasks.GetByID)
+		r.Put("/tasks/{id}", tasks.Update)
+		r.Delete("/tasks/{id}", tasks.Delete)
 	})
 
 	return &http.Server{
