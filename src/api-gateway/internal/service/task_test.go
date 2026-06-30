@@ -125,10 +125,65 @@ func TestCreate_InvalidTaskType(t *testing.T) {
 	}
 }
 
+func TestCreate_WhitespaceOnlyName(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	req := validCreateReq()
+	req.Name = "   "
+	_, err := svc.Create(context.Background(), req)
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %T: %v", err, err)
+	}
+}
+
+func TestCreate_NameTooLong(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	req := validCreateReq()
+	req.Name = string(make([]byte, 256))
+	_, err := svc.Create(context.Background(), req)
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %T: %v", err, err)
+	}
+}
+
 func TestCreate_NegativeMaxRetries(t *testing.T) {
 	svc := service.NewTaskService(&mockTaskRepo{})
 	req := validCreateReq()
 	req.MaxRetries = -1
+	_, err := svc.Create(context.Background(), req)
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %T: %v", err, err)
+	}
+}
+
+func TestCreate_MaxRetriesExceedsLimit(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	req := validCreateReq()
+	req.MaxRetries = 11
+	_, err := svc.Create(context.Background(), req)
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %T: %v", err, err)
+	}
+}
+
+func TestCreate_TimeoutTooLow(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	req := validCreateReq()
+	req.TimeoutSeconds = -1
+	_, err := svc.Create(context.Background(), req)
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %T: %v", err, err)
+	}
+}
+
+func TestCreate_TimeoutExceedsLimit(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	req := validCreateReq()
+	req.TimeoutSeconds = 601
 	_, err := svc.Create(context.Background(), req)
 	var ve *service.ValidationError
 	if !errors.As(err, &ve) {
@@ -277,6 +332,57 @@ func TestList_InvalidCursor(t *testing.T) {
 	var ve *service.ValidationError
 	if !errors.As(err, &ve) {
 		t.Fatalf("expected ValidationError for bad cursor, got %v", err)
+	}
+}
+
+// --- Update tests ---
+
+func TestUpdate_EmptyBody(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	_, err := svc.Update(context.Background(), uuid.New(), service.UpdateTaskRequest{})
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError for empty update, got %T: %v", err, err)
+	}
+}
+
+func TestUpdate_WhitespaceOnlyName(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	name := "   "
+	_, err := svc.Update(context.Background(), uuid.New(), service.UpdateTaskRequest{Name: &name})
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %T: %v", err, err)
+	}
+}
+
+func TestUpdate_NameTooLong(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	name := string(make([]byte, 256))
+	_, err := svc.Update(context.Background(), uuid.New(), service.UpdateTaskRequest{Name: &name})
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %T: %v", err, err)
+	}
+}
+
+func TestUpdate_MaxRetriesExceedsLimit(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	retries := 11
+	_, err := svc.Update(context.Background(), uuid.New(), service.UpdateTaskRequest{MaxRetries: &retries})
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %T: %v", err, err)
+	}
+}
+
+func TestUpdate_TimeoutExceedsLimit(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	timeout := 601
+	_, err := svc.Update(context.Background(), uuid.New(), service.UpdateTaskRequest{TimeoutSeconds: &timeout})
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %T: %v", err, err)
 	}
 }
 

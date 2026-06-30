@@ -131,3 +131,21 @@ func TestValidation_BlocksMutationWithMalformedContentType(t *testing.T) {
 		t.Errorf("expected 415, got %d", w.Code)
 	}
 }
+
+func TestValidation_BlocksBodyExceedingContentLengthLimit(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("handler should not be called")
+	})
+
+	body := strings.NewReader(`{"title":"test"}`)
+	req := httptest.NewRequest(http.MethodPost, "/tasks", body)
+	req.Header.Set("Content-Type", "application/json")
+	req.ContentLength = 1<<20 + 1 // just over 1 MiB
+
+	w := httptest.NewRecorder()
+	middleware.Validation(next).ServeHTTP(w, req)
+
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Errorf("expected 413, got %d", w.Code)
+	}
+}

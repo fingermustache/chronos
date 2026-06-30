@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/fingermustache/chronos/api-gateway/internal/repository"
 	"github.com/fingermustache/chronos/pkg/models"
@@ -228,9 +229,20 @@ func (s *taskService) Delete(ctx context.Context, id uuid.UUID) error {
 
 // --- validation --------------------------------------------------------------
 
+const (
+	maxNameLength      = 255
+	maxRetries         = 10
+	maxTimeoutSeconds  = 600
+	minTimeoutSeconds  = 1
+)
+
 func validateCreate(req CreateTaskRequest) error {
-	if req.Name == "" {
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
 		return &ValidationError{Message: "name is required"}
+	}
+	if len(name) > maxNameLength {
+		return &ValidationError{Message: fmt.Sprintf("name must be %d characters or fewer", maxNameLength)}
 	}
 	if !models.ScheduleType(req.ScheduleType).IsValid() {
 		return &ValidationError{Message: "schedule_type must be one of: cron, interval, once"}
@@ -238,27 +250,41 @@ func validateCreate(req CreateTaskRequest) error {
 	if !models.TaskType(req.TaskType).IsValid() {
 		return &ValidationError{Message: "task_type must be one of: http, command, grpc"}
 	}
-	if req.MaxRetries < 0 {
-		return &ValidationError{Message: "max_retries must be >= 0"}
+	if req.MaxRetries < 0 || req.MaxRetries > maxRetries {
+		return &ValidationError{Message: fmt.Sprintf("max_retries must be between 0 and %d", maxRetries)}
 	}
-	if req.TimeoutSeconds < 0 {
-		return &ValidationError{Message: "timeout_seconds must be >= 0"}
+	if req.TimeoutSeconds != 0 && (req.TimeoutSeconds < minTimeoutSeconds || req.TimeoutSeconds > maxTimeoutSeconds) {
+		return &ValidationError{Message: fmt.Sprintf("timeout_seconds must be between %d and %d", minTimeoutSeconds, maxTimeoutSeconds)}
 	}
 	return nil
 }
 
 func validateUpdate(req UpdateTaskRequest) error {
+	if req.Name == nil && req.Description == nil && req.ScheduleType == nil &&
+		req.ScheduleConfig == nil && req.TaskType == nil && req.TaskConfig == nil &&
+		req.Enabled == nil && req.MaxRetries == nil && req.TimeoutSeconds == nil {
+		return &ValidationError{Message: "request body must include at least one field to update"}
+	}
+	if req.Name != nil {
+		name := strings.TrimSpace(*req.Name)
+		if name == "" {
+			return &ValidationError{Message: "name must not be empty"}
+		}
+		if len(name) > maxNameLength {
+			return &ValidationError{Message: fmt.Sprintf("name must be %d characters or fewer", maxNameLength)}
+		}
+	}
 	if req.ScheduleType != nil && !models.ScheduleType(*req.ScheduleType).IsValid() {
 		return &ValidationError{Message: "schedule_type must be one of: cron, interval, once"}
 	}
 	if req.TaskType != nil && !models.TaskType(*req.TaskType).IsValid() {
 		return &ValidationError{Message: "task_type must be one of: http, command, grpc"}
 	}
-	if req.MaxRetries != nil && *req.MaxRetries < 0 {
-		return &ValidationError{Message: "max_retries must be >= 0"}
+	if req.MaxRetries != nil && (*req.MaxRetries < 0 || *req.MaxRetries > maxRetries) {
+		return &ValidationError{Message: fmt.Sprintf("max_retries must be between 0 and %d", maxRetries)}
 	}
-	if req.TimeoutSeconds != nil && *req.TimeoutSeconds < 0 {
-		return &ValidationError{Message: "timeout_seconds must be >= 0"}
+	if req.TimeoutSeconds != nil && (*req.TimeoutSeconds < minTimeoutSeconds || *req.TimeoutSeconds > maxTimeoutSeconds) {
+		return &ValidationError{Message: fmt.Sprintf("timeout_seconds must be between %d and %d", minTimeoutSeconds, maxTimeoutSeconds)}
 	}
 	return nil
 }
