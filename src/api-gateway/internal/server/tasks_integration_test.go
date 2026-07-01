@@ -56,7 +56,7 @@ func doJSON(t *testing.T, ts *httptest.Server, method, path string, body any) *h
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
-	if body != nil {
+	if buf.Len() > 0 {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set("Authorization", authHeader())

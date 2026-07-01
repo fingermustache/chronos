@@ -38,12 +38,23 @@ func New(cfg config.Config, logger *slog.Logger, taskSvc service.TaskService) *h
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(logger))
 
-		tasks := handler.NewTaskHandler(taskSvc, logger)
-		r.Post("/tasks", tasks.Create)
-		r.Get("/tasks", tasks.List)
-		r.Get("/tasks/{id}", tasks.GetByID)
-		r.Put("/tasks/{id}", tasks.Update)
-		r.Delete("/tasks/{id}", tasks.Delete)
+		if taskSvc != nil {
+			tasks := handler.NewTaskHandler(taskSvc, logger)
+			r.Post("/tasks", tasks.Create)
+			r.Get("/tasks", tasks.List)
+			r.Get("/tasks/{id}", tasks.GetByID)
+			r.Put("/tasks/{id}", tasks.Update)
+			r.Delete("/tasks/{id}", tasks.Delete)
+		} else {
+			unavailable := func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+			}
+			r.Get("/tasks", unavailable)
+			r.Get("/tasks/{id}", unavailable)
+			r.Post("/tasks", unavailable)
+			r.Put("/tasks/{id}", unavailable)
+			r.Delete("/tasks/{id}", unavailable)
+		}
 	})
 
 	return &http.Server{
