@@ -10,13 +10,25 @@ import (
 	"time"
 
 	"github.com/fingermustache/chronos/api-gateway/internal/config"
+	"github.com/fingermustache/chronos/api-gateway/internal/repository"
 	"github.com/fingermustache/chronos/api-gateway/internal/server"
+	"github.com/fingermustache/chronos/api-gateway/internal/service"
+	"github.com/fingermustache/chronos/pkg/database"
 )
 
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	cfg := config.Load()
-	srv := server.New(cfg, logger)
+
+	db, err := database.New(cfg.Database)
+	if err != nil {
+		logger.Error("failed to connect to database", "error", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	taskSvc := service.NewTaskService(repository.NewTaskRepository(db))
+	srv := server.New(cfg, logger, taskSvc)
 
 	serverErr := make(chan error, 1)
 	go func() {

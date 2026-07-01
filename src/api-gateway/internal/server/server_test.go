@@ -26,7 +26,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	srv := server.New(cfg, logger)
+	srv := server.New(cfg, logger, nil)
 	return httptest.NewServer(srv.Handler)
 }
 
@@ -120,6 +120,23 @@ func TestIntegration_CORSPreflight(t *testing.T) {
 	}
 }
 
+func TestIntegration_TaskRoutesReturn503WhenServiceNil(t *testing.T) {
+	ts := newTestServer(t) // passes nil service
+	defer ts.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/tasks", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode == http.StatusInternalServerError {
+		t.Errorf("nil service caused a panic (recovery returned 500); expected a clean 503")
+	}
+}
+
 func TestIntegration_AuthRequiredForProtectedRoutes(t *testing.T) {
 	ts := newTestServer(t)
 	defer ts.Close()
@@ -146,7 +163,7 @@ func TestIntegration_RateLimiterBlocksAfterLimit(t *testing.T) {
 		RateLimitRPM: 3,
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	ts := httptest.NewServer(server.New(cfg, logger).Handler)
+	ts := httptest.NewServer(server.New(cfg, logger, nil).Handler)
 	defer ts.Close()
 
 	// First 3 requests should pass
