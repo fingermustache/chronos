@@ -383,7 +383,11 @@ func calculateNextExecutionTime(scheduleType models.ScheduleType, cfg map[string
 		if err != nil {
 			return time.Time{}, fmt.Errorf("calculateNextExecutionTime: unparseable expression %q: %w", expr, err)
 		}
-		return schedule.Next(now), nil
+		next := schedule.Next(now)
+		if next.IsZero() {
+			return time.Time{}, fmt.Errorf("cron expression %q has no future occurrences after %v", expr, now)
+		}
+		return next, nil
 	case models.ScheduleTypeInterval:
 		seconds, ok := extractIntervalSeconds(cfg)
 		if !ok {
