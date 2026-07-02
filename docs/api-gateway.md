@@ -109,12 +109,35 @@ It is computed and persisted by the API gateway at create time and recalculated 
 
 | `schedule_type` | How `next_execution_time` is set |
 |---|---|
-| `cron` | Next occurrence of the expression after the request timestamp |
-| `interval` | Request timestamp + `seconds` |
-| `once` | Exactly the `run_at` value |
+| `cron` | Next occurrence of the expression after the request timestamp, evaluated in the task's timezone |
+| `interval` | Request timestamp + `seconds` (timezone has no effect) |
+| `once` | Exactly the `run_at` value (timezone has no effect) |
 
 The scheduler polls this field to determine which tasks are due.
 After a task fires, the scheduler updates `next_execution_time` for `interval` tasks and sets `enabled = false` for `once` tasks.
+
+### Timezone
+
+Tasks accept an optional `timezone` field containing an IANA timezone name (e.g. `"America/New_York"`, `"Asia/Tokyo"`, `"Europe/London"`).
+When omitted or `null`, UTC is used.
+
+```json
+{
+  "name": "morning-report",
+  "schedule_type": "cron",
+  "schedule_config": { "expression": "0 9 * * 1-5" },
+  "timezone": "America/New_York"
+}
+```
+
+`next_execution_time` is always stored and returned as UTC regardless of the task timezone.
+The timezone only affects when the cron expression fires — `interval` and `once` tasks are timezone-agnostic.
+
+#### DST behaviour
+
+When a cron expression targets a local time that is skipped by a spring-forward transition (e.g. `"30 2 * * *"` on a night when clocks skip 02:00–03:00), the scheduler skips that occurrence and fires at the next valid time.
+When a local time occurs twice due to a fall-back transition, the scheduler fires at the first occurrence (standard time).
+These behaviours come from `robfig/cron/v3` and require no special handling.
 
 ---
 

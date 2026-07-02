@@ -44,11 +44,18 @@ func nextExecution(task *models.Task, now time.Time) (advanceResult, error) {
 		if err != nil {
 			return advanceResult{}, fmt.Errorf("unparseable cron expression %q for task %s: %w", expr, task.ID, err)
 		}
-		next := schedule.Next(now)
+		loc := time.UTC
+		if task.Timezone != nil && *task.Timezone != "" {
+			loc, err = time.LoadLocation(*task.Timezone)
+			if err != nil {
+				return advanceResult{}, fmt.Errorf("invalid timezone %q for task %s: %w", *task.Timezone, task.ID, err)
+			}
+		}
+		next := schedule.Next(now.In(loc))
 		if next.IsZero() {
 			return advanceResult{}, fmt.Errorf("cron expression %q has no future occurrences for task %s", expr, task.ID)
 		}
-		return advanceResult{next: next}, nil
+		return advanceResult{next: next.UTC()}, nil
 
 	default:
 		return advanceResult{}, fmt.Errorf("unknown schedule type %q for task %s", task.ScheduleType, task.ID)

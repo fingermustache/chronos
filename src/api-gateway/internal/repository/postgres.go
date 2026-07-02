@@ -23,11 +23,11 @@ func (r *taskRepository) Create(ctx context.Context, params CreateTaskParams) (*
 	query := `
 		INSERT INTO tasks (
 			id, name, description, schedule_type, schedule_config,
-			task_type, task_config, enabled, max_retries, timeout_seconds,
+			timezone, task_type, task_config, enabled, max_retries, timeout_seconds,
 			next_execution_time
 		) VALUES (
 			:id, :name, :description, :schedule_type, :schedule_config,
-			:task_type, :task_config, true, :max_retries, :timeout_seconds,
+			:timezone, :task_type, :task_config, true, :max_retries, :timeout_seconds,
 			:next_execution_time
 		)
 		RETURNING *
@@ -39,6 +39,7 @@ func (r *taskRepository) Create(ctx context.Context, params CreateTaskParams) (*
 		Description:       params.Description,
 		ScheduleType:      params.ScheduleType,
 		ScheduleConfig:    params.ScheduleConfig,
+		Timezone:          params.Timezone,
 		TaskType:          params.TaskType,
 		TaskConfig:        params.TaskConfig,
 		MaxRetries:        params.MaxRetries,
@@ -62,7 +63,7 @@ func (r *taskRepository) Create(ctx context.Context, params CreateTaskParams) (*
 
 func (r *taskRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Task, error) {
 	query := `
-	SELECT id, name, description, schedule_type, schedule_config, task_type, task_config,
+	SELECT id, name, description, schedule_type, schedule_config, timezone, task_type, task_config,
 	       enabled, max_retries, timeout_seconds, next_execution_time, created_at, updated_at, deleted_at
 	FROM tasks
 	WHERE id = $1 AND deleted_at IS NULL
@@ -102,6 +103,7 @@ func (r *taskRepository) Update(ctx context.Context, id uuid.UUID, params Update
 			description        = COALESCE(:description,        description),
 			schedule_type      = COALESCE(:schedule_type,      schedule_type),
 			schedule_config    = COALESCE(:schedule_config,    schedule_config),
+			timezone           = COALESCE(:timezone,           timezone),
 			task_type          = COALESCE(:task_type,          task_type),
 			task_config        = COALESCE(:task_config,        task_config),
 			enabled            = COALESCE(:enabled,            enabled),
@@ -118,6 +120,7 @@ func (r *taskRepository) Update(ctx context.Context, id uuid.UUID, params Update
 		"description":         params.Description,
 		"schedule_type":       params.ScheduleType,
 		"schedule_config":     params.ScheduleConfig,
+		"timezone":            params.Timezone,
 		"task_type":           params.TaskType,
 		"task_config":         params.TaskConfig,
 		"enabled":             params.Enabled,

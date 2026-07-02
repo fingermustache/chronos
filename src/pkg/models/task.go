@@ -80,6 +80,7 @@ type Task struct {
 	ScheduleConfig    JSONB        `db:"schedule_config"     json:"schedule_config"`
 	TaskType          TaskType     `db:"task_type"           json:"task_type"`
 	TaskConfig        JSONB        `db:"task_config"         json:"task_config"`
+	Timezone          *string      `db:"timezone"            json:"timezone,omitempty"`
 	Enabled           bool         `db:"enabled"             json:"enabled"`
 	MaxRetries        int          `db:"max_retries"         json:"max_retries"`
 	TimeoutSeconds    int          `db:"timeout_seconds"     json:"timeout_seconds"`
