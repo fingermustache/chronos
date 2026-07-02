@@ -23,7 +23,7 @@ Stores scheduled task definitions and configuration.
 | `task_config` | `JSONB` | NO | `'{}'` | Execution parameters — see [Task Config](#task-config) |
 | `enabled` | `BOOLEAN` | NO | `true` | Whether the task is active |
 | `max_retries` | `INTEGER` | NO | `3` | Maximum retry attempts on failure |
-| `timeout_seconds` | `INTEGER` | NO | `300` | Execution timeout in seconds |
+| `timeout_seconds` | `INTEGER` | NO | `300` | Execution timeout in seconds — must be between 1 and 600 (enforced by `CHECK` constraint and API validation) |
 | `next_execution_time` | `TIMESTAMPTZ` | YES | `NULL` | Next scheduled run — set by scheduler |
 | `created_at` | `TIMESTAMPTZ` | NO | `NOW()` | Creation timestamp |
 | `updated_at` | `TIMESTAMPTZ` | NO | `NOW()` | Last update — auto-updated via trigger |
