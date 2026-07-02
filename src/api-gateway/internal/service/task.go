@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/fingermustache/chronos/api-gateway/internal/repository"
 	"github.com/fingermustache/chronos/pkg/models"
 	"github.com/google/uuid"
+	"github.com/robfig/cron/v3"
 )
 
 var ErrTaskNotFound = errors.New("task not found")
@@ -246,6 +248,9 @@ func validateCreate(req CreateTaskRequest) error {
 	if !models.ScheduleType(req.ScheduleType).IsValid() {
 		return &ValidationError{Message: "schedule_type must be one of: cron, interval, once"}
 	}
+	if err := validateScheduleConfig(models.ScheduleType(req.ScheduleType), req.ScheduleConfig); err != nil {
+		return err
+	}
 	if !models.TaskType(req.TaskType).IsValid() {
 		return &ValidationError{Message: "task_type must be one of: http, command, grpc"}
 	}
@@ -278,6 +283,14 @@ func validateUpdate(req UpdateTaskRequest) error {
 	if req.ScheduleType != nil && !models.ScheduleType(*req.ScheduleType).IsValid() {
 		return &ValidationError{Message: "schedule_type must be one of: cron, interval, once"}
 	}
+	if req.ScheduleConfig != nil && req.ScheduleType == nil {
+		return &ValidationError{Message: "schedule_type is required when schedule_config is provided"}
+	}
+	if req.ScheduleType != nil && req.ScheduleConfig != nil {
+		if err := validateScheduleConfig(models.ScheduleType(*req.ScheduleType), *req.ScheduleConfig); err != nil {
+			return err
+		}
+	}
 	if req.TaskType != nil && !models.TaskType(*req.TaskType).IsValid() {
 		return &ValidationError{Message: "task_type must be one of: http, command, grpc"}
 	}
@@ -286,6 +299,61 @@ func validateUpdate(req UpdateTaskRequest) error {
 	}
 	if req.TimeoutSeconds != nil && (*req.TimeoutSeconds < minTimeoutSeconds || *req.TimeoutSeconds > maxTimeoutSeconds) {
 		return &ValidationError{Message: fmt.Sprintf("timeout_seconds must be between %d and %d", minTimeoutSeconds, maxTimeoutSeconds)}
+	}
+	return nil
+}
+
+var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+
+func validateScheduleConfig(scheduleType models.ScheduleType, cfg map[string]interface{}) error {
+	switch scheduleType {
+	case models.ScheduleTypeCron:
+		raw, ok := cfg["expression"]
+		if !ok {
+			return &ValidationError{Message: "schedule_config must include 'expression' for cron schedule_type"}
+		}
+		expr, ok := raw.(string)
+		if !ok || expr == "" {
+			return &ValidationError{Message: "schedule_config.expression must be a non-empty string"}
+		}
+		if _, err := cronParser.Parse(expr); err != nil {
+			return &ValidationError{Message: fmt.Sprintf("schedule_config.expression is not a valid cron expression: %s", err)}
+		}
+	case models.ScheduleTypeInterval:
+		raw, ok := cfg["seconds"]
+		if !ok {
+			return &ValidationError{Message: "schedule_config must include 'seconds' for interval schedule_type"}
+		}
+		var seconds float64
+		switch v := raw.(type) {
+		case float64:
+			seconds = v
+		case int:
+			seconds = float64(v)
+		case int64:
+			seconds = float64(v)
+		default:
+			return &ValidationError{Message: "schedule_config.seconds must be a positive integer"}
+		}
+		if seconds <= 0 || seconds != float64(int64(seconds)) {
+			return &ValidationError{Message: "schedule_config.seconds must be a positive integer"}
+		}
+	case models.ScheduleTypeOnce:
+		raw, ok := cfg["run_at"]
+		if !ok {
+			return &ValidationError{Message: "schedule_config must include 'run_at' for once schedule_type"}
+		}
+		s, ok := raw.(string)
+		if !ok || s == "" {
+			return &ValidationError{Message: "schedule_config.run_at must be a non-empty string"}
+		}
+		t, err := time.Parse(time.RFC3339, s)
+		if err != nil {
+			return &ValidationError{Message: "schedule_config.run_at must be a valid RFC3339 timestamp (e.g. 2026-01-01T00:00:00Z)"}
+		}
+		if !t.After(time.Now().UTC()) {
+			return &ValidationError{Message: "schedule_config.run_at must be in the future"}
+		}
 	}
 	return nil
 }
