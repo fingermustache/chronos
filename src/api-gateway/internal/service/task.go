@@ -83,15 +83,21 @@ func (s *taskService) Create(ctx context.Context, req CreateTaskRequest) (*model
 		return nil, err
 	}
 
+	nextExec, err := calculateNextExecutionTime(models.ScheduleType(req.ScheduleType), req.ScheduleConfig, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+
 	params := repository.CreateTaskParams{
-		Name:           req.Name,
-		Description:    req.Description,
-		ScheduleType:   models.ScheduleType(req.ScheduleType),
-		ScheduleConfig: models.JSONB(req.ScheduleConfig),
-		TaskType:       models.TaskType(req.TaskType),
-		TaskConfig:     models.JSONB(req.TaskConfig),
-		MaxRetries:     req.MaxRetries,
-		TimeoutSeconds: req.TimeoutSeconds,
+		Name:              req.Name,
+		Description:       req.Description,
+		ScheduleType:      models.ScheduleType(req.ScheduleType),
+		ScheduleConfig:    models.JSONB(req.ScheduleConfig),
+		TaskType:          models.TaskType(req.TaskType),
+		TaskConfig:        models.JSONB(req.TaskConfig),
+		MaxRetries:        req.MaxRetries,
+		TimeoutSeconds:    req.TimeoutSeconds,
+		NextExecutionTime: &nextExec,
 	}
 
 	// Apply defaults
@@ -193,16 +199,26 @@ func (s *taskService) Update(ctx context.Context, id uuid.UUID, req UpdateTaskRe
 		taskConfig = &tc
 	}
 
+	var nextExecTime *time.Time
+	if req.ScheduleType != nil && req.ScheduleConfig != nil {
+		t, err := calculateNextExecutionTime(models.ScheduleType(*req.ScheduleType), *req.ScheduleConfig, time.Now().UTC())
+		if err != nil {
+			return nil, err
+		}
+		nextExecTime = &t
+	}
+
 	params := repository.UpdateTaskParams{
-		Name:           req.Name,
-		Description:    req.Description,
-		ScheduleType:   scheduleType,
-		ScheduleConfig: scheduleConfig,
-		TaskType:       taskType,
-		TaskConfig:     taskConfig,
-		Enabled:        req.Enabled,
-		MaxRetries:     req.MaxRetries,
-		TimeoutSeconds: req.TimeoutSeconds,
+		Name:              req.Name,
+		Description:       req.Description,
+		ScheduleType:      scheduleType,
+		ScheduleConfig:    scheduleConfig,
+		TaskType:          taskType,
+		TaskConfig:        taskConfig,
+		Enabled:           req.Enabled,
+		MaxRetries:        req.MaxRetries,
+		TimeoutSeconds:    req.TimeoutSeconds,
+		NextExecutionTime: nextExecTime,
 	}
 
 	task, err := s.repo.Update(ctx, id, params)
@@ -304,6 +320,28 @@ func validateUpdate(req UpdateTaskRequest) error {
 }
 
 var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+
+func calculateNextExecutionTime(scheduleType models.ScheduleType, cfg map[string]interface{}, now time.Time) (time.Time, error) {
+	switch scheduleType {
+	case models.ScheduleTypeCron:
+		expr := cfg["expression"].(string)
+		schedule, err := cronParser.Parse(expr)
+		if err != nil {
+			return time.Time{}, &ValidationError{Message: fmt.Sprintf("invalid cron expression: %s", err)}
+		}
+		return schedule.Next(now), nil
+	case models.ScheduleTypeInterval:
+		seconds := int64(cfg["seconds"].(float64))
+		return now.Add(time.Duration(seconds) * time.Second), nil
+	case models.ScheduleTypeOnce:
+		t, err := time.Parse(time.RFC3339, cfg["run_at"].(string))
+		if err != nil {
+			return time.Time{}, &ValidationError{Message: "invalid run_at timestamp"}
+		}
+		return t.UTC(), nil
+	}
+	return time.Time{}, fmt.Errorf("unknown schedule type: %s", scheduleType)
+}
 
 func validateScheduleConfig(scheduleType models.ScheduleType, cfg map[string]interface{}) error {
 	switch scheduleType {

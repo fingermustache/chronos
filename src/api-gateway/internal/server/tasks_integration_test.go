@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/fingermustache/chronos/api-gateway/internal/config"
 	"github.com/fingermustache/chronos/api-gateway/internal/repository"
@@ -243,6 +244,86 @@ func TestE2E_MissingAuthReturns401(t *testing.T) {
 	res.Body.Close()
 	if res.StatusCode != http.StatusUnauthorized {
 		t.Errorf("expected 401, got %d", res.StatusCode)
+	}
+}
+
+// --- next_execution_time integration tests ---
+
+func TestE2E_CreateTask_CronSetsNextExecutionTime(t *testing.T) {
+	ts, cleanup := newE2EServer(t)
+	defer cleanup()
+
+	body := validCreateBody()
+	body["schedule_type"] = "cron"
+	body["schedule_config"] = map[string]any{"expression": "0 9 * * *"}
+
+	before := time.Now().UTC()
+	task := decodeTask(t, doJSON(t, ts, http.MethodPost, "/tasks", body))
+
+	if task.NextExecutionTime == nil {
+		t.Fatal("expected next_execution_time to be set for cron task, got nil")
+	}
+	if !task.NextExecutionTime.After(before) {
+		t.Errorf("expected next_execution_time to be in the future, got %v", task.NextExecutionTime)
+	}
+}
+
+func TestE2E_CreateTask_IntervalSetsNextExecutionTime(t *testing.T) {
+	ts, cleanup := newE2EServer(t)
+	defer cleanup()
+
+	body := validCreateBody()
+	body["schedule_type"] = "interval"
+	body["schedule_config"] = map[string]any{"seconds": 3600}
+
+	before := time.Now().UTC()
+	task := decodeTask(t, doJSON(t, ts, http.MethodPost, "/tasks", body))
+
+	if task.NextExecutionTime == nil {
+		t.Fatal("expected next_execution_time to be set for interval task, got nil")
+	}
+	expected := before.Add(3600 * time.Second)
+	if task.NextExecutionTime.Before(expected.Add(-2*time.Second)) || task.NextExecutionTime.After(expected.Add(2*time.Second)) {
+		t.Errorf("expected next_execution_time ~%v, got %v", expected, task.NextExecutionTime)
+	}
+}
+
+func TestE2E_CreateTask_OnceSetsNextExecutionTime(t *testing.T) {
+	ts, cleanup := newE2EServer(t)
+	defer cleanup()
+
+	body := validCreateBody()
+	body["schedule_type"] = "once"
+	body["schedule_config"] = map[string]any{"run_at": "2030-06-15T12:00:00Z"}
+
+	task := decodeTask(t, doJSON(t, ts, http.MethodPost, "/tasks", body))
+
+	if task.NextExecutionTime == nil {
+		t.Fatal("expected next_execution_time to be set for once task, got nil")
+	}
+	expected, _ := time.Parse(time.RFC3339, "2030-06-15T12:00:00Z")
+	if !task.NextExecutionTime.Equal(expected) {
+		t.Errorf("expected next_execution_time %v, got %v", expected, task.NextExecutionTime)
+	}
+}
+
+func TestE2E_UpdateTask_RecalculatesNextExecutionTime(t *testing.T) {
+	ts, cleanup := newE2EServer(t)
+	defer cleanup()
+
+	created := decodeTask(t, doJSON(t, ts, http.MethodPost, "/tasks", validCreateBody()))
+
+	before := time.Now().UTC()
+	updated := decodeTask(t, doJSON(t, ts, http.MethodPut, "/tasks/"+created.ID.String(), map[string]any{
+		"schedule_type":   "interval",
+		"schedule_config": map[string]any{"seconds": 300},
+	}))
+
+	if updated.NextExecutionTime == nil {
+		t.Fatal("expected next_execution_time to be recalculated on update, got nil")
+	}
+	if !updated.NextExecutionTime.After(before) {
+		t.Errorf("expected recalculated next_execution_time to be in the future, got %v", updated.NextExecutionTime)
 	}
 }
 
