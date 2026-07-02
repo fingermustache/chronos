@@ -321,72 +321,116 @@ func validateUpdate(req UpdateTaskRequest) error {
 
 var cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 
+// extractCronExpression returns the expression string and whether the key/type were valid.
+func extractCronExpression(cfg map[string]interface{}) (string, bool) {
+	raw, ok := cfg["expression"]
+	if !ok {
+		return "", false
+	}
+	expr, ok := raw.(string)
+	return expr, ok && expr != ""
+}
+
+// extractIntervalSeconds returns the seconds value and whether the key/type/range were valid.
+func extractIntervalSeconds(cfg map[string]interface{}) (int64, bool) {
+	raw, ok := cfg["seconds"]
+	if !ok {
+		return 0, false
+	}
+	var f float64
+	switch v := raw.(type) {
+	case float64:
+		f = v
+	case int:
+		f = float64(v)
+	case int64:
+		f = float64(v)
+	default:
+		return 0, false
+	}
+	secs := int64(f)
+	if f <= 0 || f != float64(secs) {
+		return 0, false
+	}
+	return secs, true
+}
+
+// extractRunAt returns the parsed timestamp and whether the key/type/format were valid.
+func extractRunAt(cfg map[string]interface{}) (time.Time, bool) {
+	raw, ok := cfg["run_at"]
+	if !ok {
+		return time.Time{}, false
+	}
+	s, ok := raw.(string)
+	if !ok || s == "" {
+		return time.Time{}, false
+	}
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t.UTC(), true
+}
+
 func calculateNextExecutionTime(scheduleType models.ScheduleType, cfg map[string]interface{}, now time.Time) (time.Time, error) {
 	switch scheduleType {
 	case models.ScheduleTypeCron:
-		expr := cfg["expression"].(string)
+		expr, ok := extractCronExpression(cfg)
+		if !ok {
+			return time.Time{}, fmt.Errorf("calculateNextExecutionTime: invalid cron config (validation should have caught this)")
+		}
 		schedule, err := cronParser.Parse(expr)
 		if err != nil {
-			return time.Time{}, &ValidationError{Message: fmt.Sprintf("invalid cron expression: %s", err)}
+			return time.Time{}, fmt.Errorf("calculateNextExecutionTime: unparseable expression %q: %w", expr, err)
 		}
 		return schedule.Next(now), nil
 	case models.ScheduleTypeInterval:
-		seconds := int64(cfg["seconds"].(float64))
+		seconds, ok := extractIntervalSeconds(cfg)
+		if !ok {
+			return time.Time{}, fmt.Errorf("calculateNextExecutionTime: invalid interval config (validation should have caught this)")
+		}
 		return now.Add(time.Duration(seconds) * time.Second), nil
 	case models.ScheduleTypeOnce:
-		t, err := time.Parse(time.RFC3339, cfg["run_at"].(string))
-		if err != nil {
-			return time.Time{}, &ValidationError{Message: "invalid run_at timestamp"}
+		t, ok := extractRunAt(cfg)
+		if !ok {
+			return time.Time{}, fmt.Errorf("calculateNextExecutionTime: invalid once config (validation should have caught this)")
 		}
-		return t.UTC(), nil
+		return t, nil
 	}
-	return time.Time{}, fmt.Errorf("unknown schedule type: %s", scheduleType)
+	return time.Time{}, fmt.Errorf("calculateNextExecutionTime: unknown schedule type %q", scheduleType)
 }
 
 func validateScheduleConfig(scheduleType models.ScheduleType, cfg map[string]interface{}) error {
 	switch scheduleType {
 	case models.ScheduleTypeCron:
-		raw, ok := cfg["expression"]
+		expr, ok := extractCronExpression(cfg)
 		if !ok {
-			return &ValidationError{Message: "schedule_config must include 'expression' for cron schedule_type"}
-		}
-		expr, ok := raw.(string)
-		if !ok || expr == "" {
+			if _, exists := cfg["expression"]; !exists {
+				return &ValidationError{Message: "schedule_config must include 'expression' for cron schedule_type"}
+			}
 			return &ValidationError{Message: "schedule_config.expression must be a non-empty string"}
 		}
 		if _, err := cronParser.Parse(expr); err != nil {
 			return &ValidationError{Message: fmt.Sprintf("schedule_config.expression is not a valid cron expression: %s", err)}
 		}
 	case models.ScheduleTypeInterval:
-		raw, ok := cfg["seconds"]
-		if !ok {
-			return &ValidationError{Message: "schedule_config must include 'seconds' for interval schedule_type"}
-		}
-		var seconds float64
-		switch v := raw.(type) {
-		case float64:
-			seconds = v
-		case int:
-			seconds = float64(v)
-		case int64:
-			seconds = float64(v)
-		default:
-			return &ValidationError{Message: "schedule_config.seconds must be a positive integer"}
-		}
-		if seconds <= 0 || seconds != float64(int64(seconds)) {
+		if _, ok := extractIntervalSeconds(cfg); !ok {
+			if _, exists := cfg["seconds"]; !exists {
+				return &ValidationError{Message: "schedule_config must include 'seconds' for interval schedule_type"}
+			}
 			return &ValidationError{Message: "schedule_config.seconds must be a positive integer"}
 		}
 	case models.ScheduleTypeOnce:
-		raw, ok := cfg["run_at"]
+		t, ok := extractRunAt(cfg)
 		if !ok {
-			return &ValidationError{Message: "schedule_config must include 'run_at' for once schedule_type"}
-		}
-		s, ok := raw.(string)
-		if !ok || s == "" {
-			return &ValidationError{Message: "schedule_config.run_at must be a non-empty string"}
-		}
-		t, err := time.Parse(time.RFC3339, s)
-		if err != nil {
+			if _, exists := cfg["run_at"]; !exists {
+				return &ValidationError{Message: "schedule_config must include 'run_at' for once schedule_type"}
+			}
+			raw := cfg["run_at"]
+			s, isStr := raw.(string)
+			if !isStr || s == "" {
+				return &ValidationError{Message: "schedule_config.run_at must be a non-empty string"}
+			}
 			return &ValidationError{Message: "schedule_config.run_at must be a valid RFC3339 timestamp (e.g. 2026-01-01T00:00:00Z)"}
 		}
 		if !t.After(time.Now().UTC()) {

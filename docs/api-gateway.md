@@ -102,6 +102,20 @@ Runs exactly once at the specified timestamp.
 - `run_at` — required, RFC3339 timestamp string.
 - Must be in the future at the time of the request.
 
+### `next_execution_time`
+
+All tasks include a `next_execution_time` field in API responses (RFC3339, UTC).
+It is computed and persisted by the API gateway at create time and recalculated on any update that changes `schedule_type` or `schedule_config`.
+
+| `schedule_type` | How `next_execution_time` is set |
+|---|---|
+| `cron` | Next occurrence of the expression after the request timestamp |
+| `interval` | Request timestamp + `seconds` |
+| `once` | Exactly the `run_at` value |
+
+The scheduler polls this field to determine which tasks are due.
+After a task fires, the scheduler updates `next_execution_time` for `interval` tasks and sets `enabled = false` for `once` tasks.
+
 ---
 
 ## Configuration

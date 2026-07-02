@@ -63,7 +63,7 @@ func (r *taskRepository) Create(ctx context.Context, params CreateTaskParams) (*
 func (r *taskRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Task, error) {
 	query := `
 	SELECT id, name, description, schedule_type, schedule_config, task_type, task_config,
-	       enabled, max_retries, timeout_seconds, created_at, updated_at, deleted_at
+	       enabled, max_retries, timeout_seconds, next_execution_time, created_at, updated_at, deleted_at
 	FROM tasks
 	WHERE id = $1 AND deleted_at IS NULL
 	`
