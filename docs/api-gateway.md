@@ -23,7 +23,7 @@ Every request passes through the following middleware in order:
 | 3 | **Logger** | Logs method, path, status code, and wall-clock duration for every request using `log/slog`. Captures the status code via a wrapped `ResponseWriter`. |
 | 4 | **CORS** | Sets `Access-Control-Allow-*` headers on every response. Returns `204 No Content` immediately for `OPTIONS` preflight requests so they never reach route handlers. |
 | 5 | **RateLimiter** | Limits requests per IP per minute (default: 60 RPM, configurable via `RATE_LIMIT_RPM`). Uses an in-memory sliding window with `sync.Mutex`. Respects `X-Forwarded-For` and `X-Real-IP` for clients behind a load balancer. Returns `429 Too Many Requests` with a `Retry-After: 60` header when the limit is exceeded. |
-| 6 | **Validation** | Enforces `Content-Type: application/json` on `POST`, `PUT`, and `PATCH` requests. Returns `415 Unsupported Media Type` on violations. |
+| 6 | **Validation** | Enforces `Content-Type: application/json` on `POST`, `PUT`, and `PATCH` requests with a body. Returns `415 Unsupported Media Type` on content-type violations. Enforces a 1 MiB body size limit; returns `413 Request Entity Too Large` when exceeded. |
 | 7 | **Auth** | Validates Bearer token format on all protected routes. Phase 1: structural check only (verifies `Authorization: Bearer <token>` shape). Phase 2: will verify the JWT signature. |
 
 Auth is scoped to the **protected route group only** — public routes like `/health`
@@ -41,8 +41,15 @@ bypass it entirely at the router level.
 
 ### Protected
 
-No protected routes are implemented yet — the route group and auth middleware
-are in place ready for Phase 2 task endpoints.
+All protected routes require `Authorization: Bearer <token>`.
+
+| Method | Path | Handler | Description |
+|---|---|---|---|
+| `POST` | `/tasks` | `handler.Create` | Create a new task |
+| `GET` | `/tasks` | `handler.List` | List tasks with cursor-based pagination (`limit`, `cursor` query params) |
+| `GET` | `/tasks/{id}` | `handler.GetByID` | Get a single task by UUID |
+| `PUT` | `/tasks/{id}` | `handler.Update` | Update one or more fields on an existing task |
+| `DELETE` | `/tasks/{id}` | `handler.Delete` | Soft-delete a task |
 
 ---
 
@@ -105,7 +112,8 @@ src/api-gateway/
     ├── config/
     │   └── config.go         # Env var loading with typed defaults
     ├── handler/
-    │   └── health.go         # GET /health handler
+    │   ├── health.go         # GET /health handler
+    │   └── task.go           # Task CRUD handlers (create, list, get, update, delete)
     ├── middleware/
     │   ├── auth.go           # Bearer token validation (Phase 1 stub)
     │   ├── cors.go           # Cross-origin headers + preflight handling
