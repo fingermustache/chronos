@@ -46,7 +46,9 @@ func (e *Executor) Run() error {
 	errCh := make(chan error, 1)
 	go func() {
 		e.logger.Info("executor consumer loop started")
-		errCh <- e.consumer.Consume(e.handle)
+		errCh <- e.consumer.Consume(func(evt broker.TaskTriggerEvent) error {
+			return e.handle(ctx, evt)
+		})
 	}()
 
 	select {
@@ -62,7 +64,7 @@ func (e *Executor) Run() error {
 	}
 }
 
-func (e *Executor) handle(evt broker.TaskTriggerEvent) error {
+func (e *Executor) handle(shutdownCtx context.Context, evt broker.TaskTriggerEvent) error {
 	runner, ok := e.runners[evt.TaskType]
 	if !ok {
 		e.logger.Error("unsupported task type — nacking to DLQ",
@@ -72,7 +74,7 @@ func (e *Executor) handle(evt broker.TaskTriggerEvent) error {
 		return fmt.Errorf("%w: %s", runners.ErrUnsupportedTaskType, evt.TaskType)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(evt.TimeoutSeconds)*time.Second)
+	ctx, cancel := context.WithTimeout(shutdownCtx, time.Duration(evt.TimeoutSeconds)*time.Second)
 	defer cancel()
 
 	result, err := runner.Run(ctx, evt.TaskConfig)

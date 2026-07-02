@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 const maxOutputBytes = 64 * 1024 // 64KB
@@ -14,8 +15,12 @@ type httpRunner struct {
 	client *http.Client
 }
 
+// fallbackTimeout caps requests that somehow arrive with a context that has no
+// deadline (defensive belt-and-suspenders; the executor always sets one).
+const fallbackTimeout = 10 * time.Minute
+
 func NewHTTPRunner() TaskRunner {
-	return &httpRunner{client: &http.Client{}}
+	return &httpRunner{client: &http.Client{Timeout: fallbackTimeout}}
 }
 
 func (r *httpRunner) Run(ctx context.Context, config map[string]any) (Result, error) {
