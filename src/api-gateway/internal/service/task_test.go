@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/fingermustache/chronos/api-gateway/internal/repository"
 	"github.com/fingermustache/chronos/api-gateway/internal/service"
@@ -698,6 +699,143 @@ func TestUpdate_OnceValidRunAt(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("expected no error for valid once update, got: %v", err)
+	}
+}
+
+// --- next_execution_time calculation tests ---
+
+func TestCreate_SetsNextExecutionTime_Cron(t *testing.T) {
+	var captured repository.CreateTaskParams
+	repo := &mockTaskRepo{
+		createFn: func(_ context.Context, p repository.CreateTaskParams) (*models.Task, error) {
+			captured = p
+			return fakeTask(uuid.New()), nil
+		},
+	}
+	svc := service.NewTaskService(repo)
+	req := validCreateReq()
+	req.ScheduleType = "cron"
+	req.ScheduleConfig = map[string]interface{}{"expression": "0 9 * * *"} // 9am daily
+
+	before := time.Now().UTC()
+	_, err := svc.Create(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if captured.NextExecutionTime == nil {
+		t.Fatal("expected NextExecutionTime to be set, got nil")
+	}
+	if !captured.NextExecutionTime.After(before) {
+		t.Errorf("expected NextExecutionTime to be in the future, got %v", captured.NextExecutionTime)
+	}
+}
+
+func TestCreate_SetsNextExecutionTime_Interval(t *testing.T) {
+	var captured repository.CreateTaskParams
+	repo := &mockTaskRepo{
+		createFn: func(_ context.Context, p repository.CreateTaskParams) (*models.Task, error) {
+			captured = p
+			return fakeTask(uuid.New()), nil
+		},
+	}
+	svc := service.NewTaskService(repo)
+	req := validCreateReq()
+	req.ScheduleType = "interval"
+	req.ScheduleConfig = map[string]interface{}{"seconds": float64(3600)}
+
+	before := time.Now().UTC()
+	_, err := svc.Create(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if captured.NextExecutionTime == nil {
+		t.Fatal("expected NextExecutionTime to be set, got nil")
+	}
+	expected := before.Add(3600 * time.Second)
+	// allow 2s tolerance for test execution time
+	if captured.NextExecutionTime.Before(expected.Add(-2*time.Second)) || captured.NextExecutionTime.After(expected.Add(2*time.Second)) {
+		t.Errorf("expected NextExecutionTime ~%v, got %v", expected, captured.NextExecutionTime)
+	}
+}
+
+func TestCreate_SetsNextExecutionTime_Once(t *testing.T) {
+	var captured repository.CreateTaskParams
+	repo := &mockTaskRepo{
+		createFn: func(_ context.Context, p repository.CreateTaskParams) (*models.Task, error) {
+			captured = p
+			return fakeTask(uuid.New()), nil
+		},
+	}
+	svc := service.NewTaskService(repo)
+	req := validCreateReq()
+	req.ScheduleType = "once"
+	req.ScheduleConfig = map[string]interface{}{"run_at": "2030-06-15T12:00:00Z"}
+
+	_, err := svc.Create(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if captured.NextExecutionTime == nil {
+		t.Fatal("expected NextExecutionTime to be set, got nil")
+	}
+	expected, _ := time.Parse(time.RFC3339, "2030-06-15T12:00:00Z")
+	if !captured.NextExecutionTime.Equal(expected) {
+		t.Errorf("expected NextExecutionTime %v, got %v", expected, captured.NextExecutionTime)
+	}
+}
+
+func TestUpdate_RecalculatesNextExecutionTime_WhenScheduleChanges(t *testing.T) {
+	id := uuid.New()
+	var captured repository.UpdateTaskParams
+	repo := &mockTaskRepo{
+		updateFn: func(_ context.Context, _ uuid.UUID, p repository.UpdateTaskParams) (*models.Task, error) {
+			captured = p
+			return fakeTask(id), nil
+		},
+	}
+	svc := service.NewTaskService(repo)
+	st := "interval"
+	sc := map[string]interface{}{"seconds": float64(300)}
+
+	before := time.Now().UTC()
+	_, err := svc.Update(context.Background(), id, service.UpdateTaskRequest{
+		ScheduleType:   &st,
+		ScheduleConfig: &sc,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if captured.NextExecutionTime == nil {
+		t.Fatal("expected NextExecutionTime to be recalculated, got nil")
+	}
+	if !captured.NextExecutionTime.After(before) {
+		t.Errorf("expected recalculated NextExecutionTime to be in the future, got %v", captured.NextExecutionTime)
+	}
+}
+
+func TestUpdate_DoesNotSetNextExecutionTime_WhenScheduleNotChanged(t *testing.T) {
+	id := uuid.New()
+	var captured repository.UpdateTaskParams
+	repo := &mockTaskRepo{
+		updateFn: func(_ context.Context, _ uuid.UUID, p repository.UpdateTaskParams) (*models.Task, error) {
+			captured = p
+			return fakeTask(id), nil
+		},
+	}
+	svc := service.NewTaskService(repo)
+	name := "new-name"
+
+	_, err := svc.Update(context.Background(), id, service.UpdateTaskRequest{Name: &name})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if captured.NextExecutionTime != nil {
+		t.Errorf("expected NextExecutionTime to be nil when schedule not changed, got %v", captured.NextExecutionTime)
 	}
 }
 

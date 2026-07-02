@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/fingermustache/chronos/pkg/models"
 	"github.com/google/uuid"
@@ -18,24 +19,26 @@ type TaskRepository interface {
 }
 
 type CreateTaskParams struct {
-	Name           string
-	Description    *string
-	ScheduleType   models.ScheduleType
-	ScheduleConfig models.JSONB
-	TaskType       models.TaskType
-	TaskConfig     models.JSONB
-	MaxRetries     int
-	TimeoutSeconds int
+	Name              string
+	Description       *string
+	ScheduleType      models.ScheduleType
+	ScheduleConfig    models.JSONB
+	TaskType          models.TaskType
+	TaskConfig        models.JSONB
+	MaxRetries        int
+	TimeoutSeconds    int
+	NextExecutionTime *time.Time
 }
 
 type UpdateTaskParams struct {
-	Name           *string
-	Description    *string
-	ScheduleType   *models.ScheduleType
-	ScheduleConfig *models.JSONB
-	TaskType       *models.TaskType
-	TaskConfig     *models.JSONB
-	Enabled        *bool
-	MaxRetries     *int
-	TimeoutSeconds *int
+	Name              *string
+	Description       *string
+	ScheduleType      *models.ScheduleType
+	ScheduleConfig    *models.JSONB
+	TaskType          *models.TaskType
+	TaskConfig        *models.JSONB
+	Enabled           *bool
+	MaxRetries        *int
+	TimeoutSeconds    *int
+	NextExecutionTime *time.Time
 }

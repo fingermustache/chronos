@@ -23,24 +23,27 @@ func (r *taskRepository) Create(ctx context.Context, params CreateTaskParams) (*
 	query := `
 		INSERT INTO tasks (
 			id, name, description, schedule_type, schedule_config,
-			task_type, task_config, enabled, max_retries, timeout_seconds
+			task_type, task_config, enabled, max_retries, timeout_seconds,
+			next_execution_time
 		) VALUES (
 			:id, :name, :description, :schedule_type, :schedule_config,
-			:task_type, :task_config, true, :max_retries, :timeout_seconds
+			:task_type, :task_config, true, :max_retries, :timeout_seconds,
+			:next_execution_time
 		)
 		RETURNING *
 	`
 
 	row := &models.Task{
-		ID:             uuid.New(),
-		Name:           params.Name,
-		Description:    params.Description,
-		ScheduleType:   params.ScheduleType,
-		ScheduleConfig: params.ScheduleConfig,
-		TaskType:       params.TaskType,
-		TaskConfig:     params.TaskConfig,
-		MaxRetries:     params.MaxRetries,
-		TimeoutSeconds: params.TimeoutSeconds,
+		ID:                uuid.New(),
+		Name:              params.Name,
+		Description:       params.Description,
+		ScheduleType:      params.ScheduleType,
+		ScheduleConfig:    params.ScheduleConfig,
+		TaskType:          params.TaskType,
+		TaskConfig:        params.TaskConfig,
+		MaxRetries:        params.MaxRetries,
+		TimeoutSeconds:    params.TimeoutSeconds,
+		NextExecutionTime: params.NextExecutionTime,
 	}
 
 	stmt, err := r.db.PrepareNamedContext(ctx, query)
@@ -60,7 +63,7 @@ func (r *taskRepository) Create(ctx context.Context, params CreateTaskParams) (*
 func (r *taskRepository) GetByID(ctx context.Context, id uuid.UUID) (*models.Task, error) {
 	query := `
 	SELECT id, name, description, schedule_type, schedule_config, task_type, task_config,
-	       enabled, max_retries, timeout_seconds, created_at, updated_at, deleted_at
+	       enabled, max_retries, timeout_seconds, next_execution_time, created_at, updated_at, deleted_at
 	FROM tasks
 	WHERE id = $1 AND deleted_at IS NULL
 	`
@@ -95,30 +98,32 @@ func (r *taskRepository) List(ctx context.Context, limit, offset int) ([]*models
 func (r *taskRepository) Update(ctx context.Context, id uuid.UUID, params UpdateTaskParams) (*models.Task, error) {
 	query := `
 		UPDATE tasks SET
-			name            = COALESCE(:name,            name),
-			description     = COALESCE(:description,     description),
-			schedule_type   = COALESCE(:schedule_type,   schedule_type),
-			schedule_config = COALESCE(:schedule_config, schedule_config),
-			task_type       = COALESCE(:task_type,       task_type),
-			task_config     = COALESCE(:task_config,     task_config),
-			enabled         = COALESCE(:enabled,         enabled),
-			max_retries     = COALESCE(:max_retries,     max_retries),
-			timeout_seconds = COALESCE(:timeout_seconds, timeout_seconds)
+			name               = COALESCE(:name,               name),
+			description        = COALESCE(:description,        description),
+			schedule_type      = COALESCE(:schedule_type,      schedule_type),
+			schedule_config    = COALESCE(:schedule_config,    schedule_config),
+			task_type          = COALESCE(:task_type,          task_type),
+			task_config        = COALESCE(:task_config,        task_config),
+			enabled            = COALESCE(:enabled,            enabled),
+			max_retries        = COALESCE(:max_retries,        max_retries),
+			timeout_seconds    = COALESCE(:timeout_seconds,    timeout_seconds),
+			next_execution_time = COALESCE(:next_execution_time, next_execution_time)
 		WHERE id = :id AND deleted_at IS NULL
 		RETURNING *
 	`
 
 	args := map[string]interface{}{
-		"id":              id,
-		"name":            params.Name,
-		"description":     params.Description,
-		"schedule_type":   params.ScheduleType,
-		"schedule_config": params.ScheduleConfig,
-		"task_type":       params.TaskType,
-		"task_config":     params.TaskConfig,
-		"enabled":         params.Enabled,
-		"max_retries":     params.MaxRetries,
-		"timeout_seconds": params.TimeoutSeconds,
+		"id":                  id,
+		"name":                params.Name,
+		"description":         params.Description,
+		"schedule_type":       params.ScheduleType,
+		"schedule_config":     params.ScheduleConfig,
+		"task_type":           params.TaskType,
+		"task_config":         params.TaskConfig,
+		"enabled":             params.Enabled,
+		"max_retries":         params.MaxRetries,
+		"timeout_seconds":     params.TimeoutSeconds,
+		"next_execution_time": params.NextExecutionTime,
 	}
 
 	stmt, err := r.db.PrepareNamedContext(ctx, query)
