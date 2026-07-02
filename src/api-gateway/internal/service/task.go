@@ -276,10 +276,10 @@ func (s *taskService) Delete(ctx context.Context, id uuid.UUID) error {
 // --- validation --------------------------------------------------------------
 
 const (
-	maxNameLength      = 255
-	maxRetries         = 10
-	maxTimeoutSeconds  = 600
-	minTimeoutSeconds  = 1
+	maxNameLength     = 255
+	maxRetries        = 10
+	maxTimeoutSeconds = 600
+	minTimeoutSeconds = 1
 )
 
 func validateTimezone(tz *string) error {

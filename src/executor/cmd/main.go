@@ -6,12 +6,21 @@ import (
 
 	"github.com/fingermustache/chronos/executor/internal/config"
 	"github.com/fingermustache/chronos/executor/internal/execution"
+	"github.com/fingermustache/chronos/executor/internal/repository"
 	"github.com/fingermustache/chronos/pkg/broker"
+	"github.com/fingermustache/chronos/pkg/database"
 )
 
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 	cfg := config.Load()
+
+	db, err := database.New(cfg.Database)
+	if err != nil {
+		logger.Error("failed to connect to database", "error", err)
+		os.Exit(1)
+	}
+	defer db.Close()
 
 	brokerConn, err := broker.NewConnection(cfg.Broker)
 	if err != nil {
@@ -31,7 +40,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	exec := execution.New(consumer, logger)
+	repo := repository.NewExecutionRepository(db)
+	exec := execution.New(consumer, repo, logger)
 
 	logger.Info("executor starting")
 	if err := exec.Run(); err != nil {

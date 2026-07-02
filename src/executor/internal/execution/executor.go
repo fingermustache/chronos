@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/fingermustache/chronos/executor/internal/repository"
 	"github.com/fingermustache/chronos/executor/internal/runners"
 	"github.com/fingermustache/chronos/pkg/broker"
 	"github.com/fingermustache/chronos/pkg/models"
@@ -18,12 +19,13 @@ import (
 // task-type runners.
 type Executor struct {
 	consumer broker.Consumer
+	repo     repository.ExecutionRepository
 	runners  map[string]runners.TaskRunner
 	logger   *slog.Logger
 }
 
-func New(consumer broker.Consumer, logger *slog.Logger) *Executor {
-	return newWithRunners(consumer, logger, defaultRunners())
+func New(consumer broker.Consumer, repo repository.ExecutionRepository, logger *slog.Logger) *Executor {
+	return newWithRunners(consumer, repo, logger, defaultRunners())
 }
 
 func defaultRunners() map[string]runners.TaskRunner {
@@ -32,8 +34,8 @@ func defaultRunners() map[string]runners.TaskRunner {
 	}
 }
 
-func newWithRunners(consumer broker.Consumer, logger *slog.Logger, r map[string]runners.TaskRunner) *Executor {
-	return &Executor{consumer: consumer, runners: r, logger: logger}
+func newWithRunners(consumer broker.Consumer, repo repository.ExecutionRepository, logger *slog.Logger, r map[string]runners.TaskRunner) *Executor {
+	return &Executor{consumer: consumer, repo: repo, runners: r, logger: logger}
 }
 
 // Run starts the consumer loop and blocks until SIGTERM or SIGINT, then waits
@@ -74,17 +76,62 @@ func (e *Executor) handle(shutdownCtx context.Context, evt broker.TaskTriggerEve
 		return fmt.Errorf("%w: %s", runners.ErrUnsupportedTaskType, evt.TaskType)
 	}
 
+	record, err := e.repo.Create(shutdownCtx, repository.CreateExecutionParams{
+		TaskID: evt.TaskID,
+		Status: models.StatusRunning,
+	})
+	if err != nil {
+		e.logger.Error("failed to record execution start — nacking",
+			"task_id", evt.TaskID,
+			"error", err,
+		)
+		return fmt.Errorf("record execution start: %w", err)
+	}
+
+	startedAt := time.Now()
 	ctx, cancel := context.WithTimeout(shutdownCtx, time.Duration(evt.TimeoutSeconds)*time.Second)
 	defer cancel()
 
-	result, err := runner.Run(ctx, evt.TaskConfig)
-	if err != nil {
+	result, runErr := runner.Run(ctx, evt.TaskConfig)
+
+	completedAt := time.Now()
+	durationMs := int(completedAt.Sub(startedAt).Milliseconds())
+
+	if runErr != nil {
 		e.logger.Error("task execution failed",
 			"task_id", evt.TaskID,
 			"task_type", evt.TaskType,
-			"error", err,
+			"error", runErr,
 		)
-		return err
+
+		errMsg := runErr.Error()
+		if updateErr := e.repo.UpdateStatus(shutdownCtx, record.ID, repository.UpdateExecutionParams{
+			Status:       models.StatusFailed,
+			CompletedAt:  &completedAt,
+			DurationMs:   &durationMs,
+			ErrorMessage: &errMsg,
+		}); updateErr != nil {
+			e.logger.Error("failed to record execution failure",
+				"task_id", evt.TaskID,
+				"execution_id", record.ID,
+				"error", updateErr,
+			)
+		}
+
+		return runErr
+	}
+
+	if updateErr := e.repo.UpdateStatus(shutdownCtx, record.ID, repository.UpdateExecutionParams{
+		Status:      models.StatusSuccess,
+		CompletedAt: &completedAt,
+		DurationMs:  &durationMs,
+		Output:      &result.Output,
+	}); updateErr != nil {
+		e.logger.Error("failed to record execution success",
+			"task_id", evt.TaskID,
+			"execution_id", record.ID,
+			"error", updateErr,
+		)
 	}
 
 	e.logger.Info("task executed successfully",
