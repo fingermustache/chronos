@@ -26,12 +26,14 @@ func NewTaskRepository(db database.Querier) TaskRepository {
 // q must be a transaction (obtained via database.DB.WithTx).
 func (r *taskRepository) ClaimDueTasks(ctx context.Context, q database.Querier, limit int) ([]*models.Task, error) {
 	query := `
-		SELECT * FROM tasks
-		WHERE enabled = true
-		  AND deleted_at IS NULL
-		  AND next_execution_time <= NOW()
-		ORDER BY next_execution_time ASC
-		LIMIT $1
+		SELECT * FROM (
+			SELECT * FROM tasks
+			WHERE enabled = true
+			  AND deleted_at IS NULL
+			  AND next_execution_time <= NOW()
+			ORDER BY next_execution_time ASC
+			LIMIT $1
+		) due
 		FOR UPDATE SKIP LOCKED
 	`
 

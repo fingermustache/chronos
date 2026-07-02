@@ -85,9 +85,7 @@ func (s *Scheduler) PollOnce(ctx context.Context) {
 
 			result, err := nextExecution(task, now)
 			if err != nil {
-				s.logger.Warn("scheduler: could not compute next execution, skipping advance",
-					"task_id", task.ID, "error", err)
-				continue
+				return err
 			}
 
 			if result.disable {
