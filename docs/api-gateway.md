@@ -53,6 +53,57 @@ All protected routes require `Authorization: Bearer <token>`.
 
 ---
 
+## Schedule Types
+
+Every task requires a `schedule_type` and a matching `schedule_config` object.
+The API validates both fields on create and on any update that supplies `schedule_config`
+(which must always be accompanied by `schedule_type`).
+
+### `cron`
+
+Runs on a standard five-field cron schedule (minute hour dom month dow).
+
+```json
+{
+  "schedule_type": "cron",
+  "schedule_config": { "expression": "0 9 * * 1-5" }
+}
+```
+
+- `expression` — required, non-empty string.
+- Must be a syntactically and semantically valid five-field cron expression.
+- Second-field and year-field extensions are not accepted.
+
+### `interval`
+
+Runs repeatedly at a fixed interval expressed as a whole number of seconds.
+
+```json
+{
+  "schedule_type": "interval",
+  "schedule_config": { "seconds": 3600 }
+}
+```
+
+- `seconds` — required, positive integer (e.g. `300` = every 5 minutes, `86400` = every 24 hours).
+- Zero and negative values are rejected.
+
+### `once`
+
+Runs exactly once at the specified timestamp.
+
+```json
+{
+  "schedule_type": "once",
+  "schedule_config": { "run_at": "2026-09-01T09:00:00Z" }
+}
+```
+
+- `run_at` — required, RFC3339 timestamp string.
+- Must be in the future at the time of the request.
+
+---
+
 ## Configuration
 
 All configuration is loaded from environment variables via `config.Load()`.

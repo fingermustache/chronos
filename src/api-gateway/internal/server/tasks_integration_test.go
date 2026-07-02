@@ -245,3 +245,88 @@ func TestE2E_MissingAuthReturns401(t *testing.T) {
 		t.Errorf("expected 401, got %d", res.StatusCode)
 	}
 }
+
+// --- schedule type integration tests ---
+
+func TestE2E_CreateTask_IntervalSchedule(t *testing.T) {
+	ts, cleanup := newE2EServer(t)
+	defer cleanup()
+
+	body := validCreateBody()
+	body["schedule_type"] = "interval"
+	body["schedule_config"] = map[string]any{"seconds": 3600}
+
+	res := doJSON(t, ts, http.MethodPost, "/tasks", body)
+	if res.StatusCode != http.StatusCreated {
+		res.Body.Close()
+		t.Fatalf("expected 201, got %d", res.StatusCode)
+	}
+	task := decodeTask(t, res)
+	if string(task.ScheduleType) != "interval" {
+		t.Errorf("got schedule_type %q, want %q", task.ScheduleType, "interval")
+	}
+}
+
+func TestE2E_CreateTask_OnceSchedule(t *testing.T) {
+	ts, cleanup := newE2EServer(t)
+	defer cleanup()
+
+	body := validCreateBody()
+	body["schedule_type"] = "once"
+	body["schedule_config"] = map[string]any{"run_at": "2030-01-01T00:00:00Z"}
+
+	res := doJSON(t, ts, http.MethodPost, "/tasks", body)
+	if res.StatusCode != http.StatusCreated {
+		res.Body.Close()
+		t.Fatalf("expected 201, got %d", res.StatusCode)
+	}
+	task := decodeTask(t, res)
+	if string(task.ScheduleType) != "once" {
+		t.Errorf("got schedule_type %q, want %q", task.ScheduleType, "once")
+	}
+}
+
+func TestE2E_CreateTask_InvalidCronExpression(t *testing.T) {
+	ts, cleanup := newE2EServer(t)
+	defer cleanup()
+
+	body := validCreateBody()
+	body["schedule_type"] = "cron"
+	body["schedule_config"] = map[string]any{"expression": "not-a-cron"}
+
+	res := doJSON(t, ts, http.MethodPost, "/tasks", body)
+	res.Body.Close()
+	if res.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 for invalid cron expression, got %d", res.StatusCode)
+	}
+}
+
+func TestE2E_CreateTask_IntervalZeroSeconds(t *testing.T) {
+	ts, cleanup := newE2EServer(t)
+	defer cleanup()
+
+	body := validCreateBody()
+	body["schedule_type"] = "interval"
+	body["schedule_config"] = map[string]any{"seconds": 0}
+
+	res := doJSON(t, ts, http.MethodPost, "/tasks", body)
+	res.Body.Close()
+	if res.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 for zero interval seconds, got %d", res.StatusCode)
+	}
+}
+
+func TestE2E_CreateTask_OncePastTimestamp(t *testing.T) {
+	ts, cleanup := newE2EServer(t)
+	defer cleanup()
+
+	body := validCreateBody()
+	body["schedule_type"] = "once"
+	body["schedule_config"] = map[string]any{"run_at": "2020-01-01T00:00:00Z"}
+
+	res := doJSON(t, ts, http.MethodPost, "/tasks", body)
+	res.Body.Close()
+	if res.StatusCode != http.StatusUnprocessableEntity {
+		t.Errorf("expected 422 for past run_at, got %d", res.StatusCode)
+	}
+}
