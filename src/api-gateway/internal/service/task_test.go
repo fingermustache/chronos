@@ -425,6 +425,187 @@ func TestUpdate_TimeoutExceedsLimit(t *testing.T) {
 	}
 }
 
+// --- schedule_config validation tests (Create) ---
+
+func TestCreate_CronMissingExpression(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	req := validCreateReq()
+	req.ScheduleType = "cron"
+	req.ScheduleConfig = map[string]interface{}{} // missing expression
+	_, err := svc.Create(context.Background(), req)
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %T: %v", err, err)
+	}
+}
+
+func TestCreate_CronInvalidExpression(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	req := validCreateReq()
+	req.ScheduleType = "cron"
+	req.ScheduleConfig = map[string]interface{}{"expression": "not-a-cron"}
+	_, err := svc.Create(context.Background(), req)
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError for invalid cron expression, got %T: %v", err, err)
+	}
+}
+
+func TestCreate_CronValidExpression(t *testing.T) {
+	id := uuid.New()
+	repo := &mockTaskRepo{
+		createFn: func(_ context.Context, _ repository.CreateTaskParams) (*models.Task, error) {
+			return fakeTask(id), nil
+		},
+	}
+	svc := service.NewTaskService(repo)
+	req := validCreateReq()
+	req.ScheduleType = "cron"
+	req.ScheduleConfig = map[string]interface{}{"expression": "0 * * * *"}
+	_, err := svc.Create(context.Background(), req)
+	if err != nil {
+		t.Fatalf("expected no error for valid cron expression, got: %v", err)
+	}
+}
+
+func TestCreate_IntervalMissingSeconds(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	req := validCreateReq()
+	req.ScheduleType = "interval"
+	req.ScheduleConfig = map[string]interface{}{} // missing seconds
+	_, err := svc.Create(context.Background(), req)
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %T: %v", err, err)
+	}
+}
+
+func TestCreate_IntervalZeroSeconds(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	req := validCreateReq()
+	req.ScheduleType = "interval"
+	req.ScheduleConfig = map[string]interface{}{"seconds": float64(0)}
+	_, err := svc.Create(context.Background(), req)
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError for zero seconds, got %T: %v", err, err)
+	}
+}
+
+func TestCreate_IntervalNegativeSeconds(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	req := validCreateReq()
+	req.ScheduleType = "interval"
+	req.ScheduleConfig = map[string]interface{}{"seconds": float64(-1)}
+	_, err := svc.Create(context.Background(), req)
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError for negative seconds, got %T: %v", err, err)
+	}
+}
+
+func TestCreate_IntervalValidSeconds(t *testing.T) {
+	id := uuid.New()
+	repo := &mockTaskRepo{
+		createFn: func(_ context.Context, _ repository.CreateTaskParams) (*models.Task, error) {
+			return fakeTask(id), nil
+		},
+	}
+	svc := service.NewTaskService(repo)
+	req := validCreateReq()
+	req.ScheduleType = "interval"
+	req.ScheduleConfig = map[string]interface{}{"seconds": float64(3600)}
+	_, err := svc.Create(context.Background(), req)
+	if err != nil {
+		t.Fatalf("expected no error for valid interval, got: %v", err)
+	}
+}
+
+func TestCreate_OnceMissingRunAt(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	req := validCreateReq()
+	req.ScheduleType = "once"
+	req.ScheduleConfig = map[string]interface{}{} // missing run_at
+	_, err := svc.Create(context.Background(), req)
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %T: %v", err, err)
+	}
+}
+
+func TestCreate_OnceInvalidRunAt(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	req := validCreateReq()
+	req.ScheduleType = "once"
+	req.ScheduleConfig = map[string]interface{}{"run_at": "not-a-timestamp"}
+	_, err := svc.Create(context.Background(), req)
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError for invalid run_at, got %T: %v", err, err)
+	}
+}
+
+func TestCreate_OnceValidRunAt(t *testing.T) {
+	id := uuid.New()
+	repo := &mockTaskRepo{
+		createFn: func(_ context.Context, _ repository.CreateTaskParams) (*models.Task, error) {
+			return fakeTask(id), nil
+		},
+	}
+	svc := service.NewTaskService(repo)
+	req := validCreateReq()
+	req.ScheduleType = "once"
+	req.ScheduleConfig = map[string]interface{}{"run_at": "2030-01-01T00:00:00Z"}
+	_, err := svc.Create(context.Background(), req)
+	if err != nil {
+		t.Fatalf("expected no error for valid run_at, got: %v", err)
+	}
+}
+
+// --- schedule_config validation tests (Update) ---
+
+func TestUpdate_CronInvalidExpression(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	st := "cron"
+	sc := map[string]interface{}{"expression": "bad-expr"}
+	_, err := svc.Update(context.Background(), uuid.New(), service.UpdateTaskRequest{
+		ScheduleType:   &st,
+		ScheduleConfig: &sc,
+	})
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %T: %v", err, err)
+	}
+}
+
+func TestUpdate_IntervalZeroSeconds(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	st := "interval"
+	sc := map[string]interface{}{"seconds": float64(0)}
+	_, err := svc.Update(context.Background(), uuid.New(), service.UpdateTaskRequest{
+		ScheduleType:   &st,
+		ScheduleConfig: &sc,
+	})
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %T: %v", err, err)
+	}
+}
+
+func TestUpdate_OnceInvalidRunAt(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	st := "once"
+	sc := map[string]interface{}{"run_at": "bad-timestamp"}
+	_, err := svc.Update(context.Background(), uuid.New(), service.UpdateTaskRequest{
+		ScheduleType:   &st,
+		ScheduleConfig: &sc,
+	})
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %T: %v", err, err)
+	}
+}
+
 // --- Delete tests ---
 
 func TestDelete_NotFound(t *testing.T) {
