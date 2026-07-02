@@ -14,16 +14,17 @@ type Config struct {
 }
 
 func Load() Config {
+	dbCfg := database.DefaultConfig()
+	dbCfg.Host = getEnv("DB_HOST", dbCfg.Host)
+	dbCfg.Port = getEnvInt("DB_PORT", dbCfg.Port)
+	dbCfg.User = getEnv("DB_USER", dbCfg.User)
+	dbCfg.Password = getEnv("DB_PASSWORD", dbCfg.Password)
+	dbCfg.Database = getEnv("DB_NAME", dbCfg.Database)
+	dbCfg.SSLMode = getEnv("DB_SSLMODE", dbCfg.SSLMode)
+
 	return Config{
-		Database: database.Config{
-			Host:     getEnv("DB_HOST", "localhost"),
-			Port:     getEnvInt("DB_PORT", 5432),
-			User:     getEnv("DB_USER", "chronos"),
-			Password: getEnv("DB_PASSWORD", "chronos"),
-			Database: getEnv("DB_NAME", "chronos"),
-			SSLMode:  getEnv("DB_SSLMODE", "disable"),
-		},
-		Broker: broker.DefaultConfig(),
+		Database: dbCfg,
+		Broker:   broker.DefaultConfig(),
 	}
 }
 

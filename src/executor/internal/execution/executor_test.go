@@ -3,6 +3,7 @@ package execution_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -42,6 +43,10 @@ func (m *mockRepo) Create(ctx context.Context, params repository.CreateExecution
 	if m.createFn != nil {
 		return m.createFn(ctx, params)
 	}
+	// Mimic a real DB client: a call made with an already-cancelled context fails.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return &models.ExecutionHistory{ID: uuid.New(), TaskID: params.TaskID, Status: params.Status}, nil
 }
 
@@ -50,7 +55,7 @@ func (m *mockRepo) UpdateStatus(ctx context.Context, id uuid.UUID, params reposi
 	if m.updateFn != nil {
 		return m.updateFn(ctx, id, params)
 	}
-	return nil
+	return ctx.Err()
 }
 
 func (m *mockRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.ExecutionHistory, error) {
@@ -94,6 +99,9 @@ func TestHandle_UnsupportedTaskType(t *testing.T) {
 	}
 	if len(repo.creates) != 0 {
 		t.Errorf("expected no execution record for unsupported task type, got %d", len(repo.creates))
+	}
+	if len(repo.updates) != 0 {
+		t.Errorf("expected no update calls for unsupported task type, got %d", len(repo.updates))
 	}
 }
 
@@ -146,7 +154,7 @@ func TestHandle_HTTPTask_Failure(t *testing.T) {
 	repo := &mockRepo{}
 	exec := newTestExecutor("http", &mockRunner{
 		runFn: func(_ context.Context, _ map[string]any) (runners.Result, error) {
-			return runners.Result{StatusCode: 500}, errors.New("server error")
+			return runners.Result{StatusCode: 500, Output: `{"error":"boom"}`}, errors.New("server error")
 		},
 	}, repo)
 
@@ -169,6 +177,29 @@ func TestHandle_HTTPTask_Failure(t *testing.T) {
 	}
 	if update.ErrorMessage == nil || *update.ErrorMessage != "server error" {
 		t.Errorf("expected error message 'server error', got %v", update.ErrorMessage)
+	}
+	if update.Output == nil || *update.Output != `{"error":"boom"}` {
+		t.Errorf("expected the runner's output to be recorded on failure too, got %v", update.Output)
+	}
+}
+
+func TestHandle_Timeout_RecordsStatusTimeout(t *testing.T) {
+	repo := &mockRepo{}
+	exec := newTestExecutor("http", &mockRunner{
+		runFn: func(_ context.Context, _ map[string]any) (runners.Result, error) {
+			return runners.Result{}, fmt.Errorf("http runner: execute request: %w", context.DeadlineExceeded)
+		},
+	}, repo)
+
+	if err := execution.Handle(exec, triggerEvent("http")); err == nil {
+		t.Fatal("expected error on timeout, got nil")
+	}
+
+	if len(repo.updates) != 1 {
+		t.Fatalf("expected 1 update call, got %d", len(repo.updates))
+	}
+	if update := repo.updates[0]; update.Status != models.StatusTimeout {
+		t.Errorf("expected timeout status on update, got %q", update.Status)
 	}
 }
 
@@ -214,6 +245,34 @@ func TestHandle_CreateFails_NacksWithoutInvokingRunner(t *testing.T) {
 	}
 	if len(repo.updates) != 0 {
 		t.Errorf("expected no update calls when Create fails, got %d", len(repo.updates))
+	}
+}
+
+func TestHandle_RecordWritesSurviveCancelledShutdownContext(t *testing.T) {
+	// Simulates a SIGTERM arriving mid-task: the shutdown context is already
+	// done by the time the runner finishes, but the execution history writes
+	// must still succeed since they run on their own context.
+	shutdownCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	repo := &mockRepo{}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	exec := execution.NewWithRunners(nil, repo, logger, map[string]runners.TaskRunner{
+		"http": &mockRunner{
+			runFn: func(_ context.Context, _ map[string]any) (runners.Result, error) {
+				return runners.Result{StatusCode: 200, Output: "ok"}, nil
+			},
+		},
+	})
+
+	if err := execution.HandleWithContext(exec, shutdownCtx, triggerEvent("http")); err != nil {
+		t.Fatalf("expected success even with an already-cancelled shutdown context, got: %v", err)
+	}
+	if len(repo.creates) != 1 {
+		t.Fatalf("expected the running record to be created despite the cancelled shutdown context, got %d creates", len(repo.creates))
+	}
+	if len(repo.updates) != 1 || repo.updates[0].Status != models.StatusSuccess {
+		t.Fatalf("expected the completion record to be written despite the cancelled shutdown context, got %+v", repo.updates)
 	}
 }
 

@@ -13,7 +13,13 @@ import (
 	"github.com/fingermustache/chronos/executor/internal/runners"
 	"github.com/fingermustache/chronos/pkg/broker"
 	"github.com/fingermustache/chronos/pkg/models"
+	"github.com/google/uuid"
 )
+
+// recordWriteTimeout bounds execution-history writes. It is independent of
+// the consumer's shutdown context so a SIGTERM mid-task doesn't cancel the
+// write that is supposed to record what just happened.
+const recordWriteTimeout = 5 * time.Second
 
 // Executor consumes TaskTriggerEvents from the broker and dispatches them to
 // task-type runners.
@@ -76,10 +82,12 @@ func (e *Executor) handle(shutdownCtx context.Context, evt broker.TaskTriggerEve
 		return fmt.Errorf("%w: %s", runners.ErrUnsupportedTaskType, evt.TaskType)
 	}
 
-	record, err := e.repo.Create(shutdownCtx, repository.CreateExecutionParams{
+	createCtx, cancelCreate := e.independentCtx()
+	record, err := e.repo.Create(createCtx, repository.CreateExecutionParams{
 		TaskID: evt.TaskID,
 		Status: models.StatusRunning,
 	})
+	cancelCreate()
 	if err != nil {
 		e.logger.Error("failed to record execution start — nacking",
 			"task_id", evt.TaskID,
@@ -97,41 +105,31 @@ func (e *Executor) handle(shutdownCtx context.Context, evt broker.TaskTriggerEve
 	completedAt := time.Now()
 	durationMs := int(completedAt.Sub(startedAt).Milliseconds())
 
+	params := repository.UpdateExecutionParams{
+		Status:      models.StatusSuccess,
+		CompletedAt: &completedAt,
+		DurationMs:  &durationMs,
+		Output:      &result.Output,
+	}
+
+	if runErr != nil {
+		params.Status = models.StatusFailed
+		if errors.Is(runErr, context.DeadlineExceeded) {
+			params.Status = models.StatusTimeout
+		}
+		errMsg := runErr.Error()
+		params.ErrorMessage = &errMsg
+	}
+
+	e.recordCompletion(evt.TaskID, record.ID, params)
+
 	if runErr != nil {
 		e.logger.Error("task execution failed",
 			"task_id", evt.TaskID,
 			"task_type", evt.TaskType,
 			"error", runErr,
 		)
-
-		errMsg := runErr.Error()
-		if updateErr := e.repo.UpdateStatus(shutdownCtx, record.ID, repository.UpdateExecutionParams{
-			Status:       models.StatusFailed,
-			CompletedAt:  &completedAt,
-			DurationMs:   &durationMs,
-			ErrorMessage: &errMsg,
-		}); updateErr != nil {
-			e.logger.Error("failed to record execution failure",
-				"task_id", evt.TaskID,
-				"execution_id", record.ID,
-				"error", updateErr,
-			)
-		}
-
 		return runErr
-	}
-
-	if updateErr := e.repo.UpdateStatus(shutdownCtx, record.ID, repository.UpdateExecutionParams{
-		Status:      models.StatusSuccess,
-		CompletedAt: &completedAt,
-		DurationMs:  &durationMs,
-		Output:      &result.Output,
-	}); updateErr != nil {
-		e.logger.Error("failed to record execution success",
-			"task_id", evt.TaskID,
-			"execution_id", record.ID,
-			"error", updateErr,
-		)
 	}
 
 	e.logger.Info("task executed successfully",
@@ -140,4 +138,29 @@ func (e *Executor) handle(shutdownCtx context.Context, evt broker.TaskTriggerEve
 		"status_code", result.StatusCode,
 	)
 	return nil
+}
+
+// recordCompletion writes the terminal status for an execution attempt and
+// logs, rather than fails, if the write itself fails — the task's own
+// outcome (ack/nack) was already decided from the runner's result.
+func (e *Executor) recordCompletion(taskID uuid.UUID, executionID uuid.UUID, params repository.UpdateExecutionParams) {
+	ctx, cancel := e.independentCtx()
+	defer cancel()
+
+	if err := e.repo.UpdateStatus(ctx, executionID, params); err != nil {
+		e.logger.Error("failed to record execution completion",
+			"task_id", taskID,
+			"execution_id", executionID,
+			"status", params.Status,
+			"error", err,
+		)
+	}
+}
+
+// independentCtx returns a context for execution-history writes that is
+// bounded by recordWriteTimeout but not tied to the consumer's shutdown
+// context, so a SIGTERM mid-task can't cancel the write that records what
+// just happened.
+func (e *Executor) independentCtx() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), recordWriteTimeout)
 }
