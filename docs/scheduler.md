@@ -6,12 +6,13 @@ The scheduler is a standalone service that continuously polls PostgreSQL for due
 
 On every poll tick the scheduler opens a single database transaction and executes:
 
-1. **Claim due tasks** — `SELECT … FOR UPDATE SKIP LOCKED LIMIT <batch_size>` against `tasks` where `enabled = true` and `next_execution_time <= NOW()`.
-SKIP LOCKED means multiple scheduler instances can run concurrently without claiming the same task twice.
+1. **Claim due tasks** — a subquery selects up to `<batch_size>` eligible rows (`enabled = true`, `deleted_at IS NULL`, `next_execution_time <= NOW()`, ordered by `next_execution_time ASC`), then `FOR UPDATE SKIP LOCKED` is applied to the subquery result.
+The subquery form ensures `LIMIT` applies before locking, so each scheduler instance claims exactly the batch it asked for.
+Multiple scheduler instances can run concurrently without claiming the same task twice.
 2. **Publish** — for each claimed task, a `TaskTriggerEvent` is published to the RabbitMQ exchange.
 3. **Advance schedule** — still inside the same transaction:
    - `interval` tasks: `next_execution_time` is set to `NOW() + interval_seconds`.
-   - `cron` tasks: `next_execution_time` is set to the next occurrence after `NOW()` as computed by the cron expression.
+   - `cron` tasks: `next_execution_time` is set to the next occurrence after `NOW()`, evaluated in the task's timezone (defaults to UTC when `timezone` is `NULL`).
    - `once` tasks: `enabled` is set to `false`; the task never fires again.
 
 Because publish and schedule advance share one transaction, a broker failure rolls back the claim — the task will be retried on the next tick rather than silently dropped.
