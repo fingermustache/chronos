@@ -17,5 +17,20 @@ services:
       timeout: 5s
       retries: 5
 
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: chronos-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: chronos
+      RABBITMQ_DEFAULT_PASS: chronos
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
 volumes:
   chronos-data:
