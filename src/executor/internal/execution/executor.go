@@ -3,23 +3,37 @@ package execution
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os/signal"
 	"syscall"
+	"time"
 
+	"github.com/fingermustache/chronos/executor/internal/runners"
 	"github.com/fingermustache/chronos/pkg/broker"
+	"github.com/fingermustache/chronos/pkg/models"
 )
 
 // Executor consumes TaskTriggerEvents from the broker and dispatches them to
-// task-type handlers (HTTP, gRPC, etc.).
-// Handler implementations are added in Phase 3.
+// task-type runners.
 type Executor struct {
 	consumer broker.Consumer
+	runners  map[string]runners.TaskRunner
 	logger   *slog.Logger
 }
 
 func New(consumer broker.Consumer, logger *slog.Logger) *Executor {
-	return &Executor{consumer: consumer, logger: logger}
+	return newWithRunners(consumer, logger, defaultRunners())
+}
+
+func defaultRunners() map[string]runners.TaskRunner {
+	return map[string]runners.TaskRunner{
+		string(models.TaskTypeHTTP): runners.NewHTTPRunner(),
+	}
+}
+
+func newWithRunners(consumer broker.Consumer, logger *slog.Logger, r map[string]runners.TaskRunner) *Executor {
+	return &Executor{consumer: consumer, runners: r, logger: logger}
 }
 
 // Run starts the consumer loop and blocks until SIGTERM or SIGINT, then waits
@@ -37,9 +51,6 @@ func (e *Executor) Run() error {
 
 	select {
 	case <-ctx.Done():
-		// Signal the consumer to stop cleanly. Close() sets the closing flag
-		// before closing the channel, so Consume() returns nil rather than
-		// ErrConsumerClosed. We then wait for the goroutine to finish draining.
 		e.logger.Info("executor shutting down")
 		e.consumer.Close()
 		return <-errCh
@@ -51,14 +62,33 @@ func (e *Executor) Run() error {
 	}
 }
 
-// handle dispatches a single trigger event.
-// Full implementation: Phase 3 (task-type handlers).
 func (e *Executor) handle(evt broker.TaskTriggerEvent) error {
-	e.logger.Info("received trigger event",
+	runner, ok := e.runners[evt.TaskType]
+	if !ok {
+		e.logger.Error("unsupported task type — nacking to DLQ",
+			"task_id", evt.TaskID,
+			"task_type", evt.TaskType,
+		)
+		return fmt.Errorf("%w: %s", runners.ErrUnsupportedTaskType, evt.TaskType)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(evt.TimeoutSeconds)*time.Second)
+	defer cancel()
+
+	result, err := runner.Run(ctx, evt.TaskConfig)
+	if err != nil {
+		e.logger.Error("task execution failed",
+			"task_id", evt.TaskID,
+			"task_type", evt.TaskType,
+			"error", err,
+		)
+		return err
+	}
+
+	e.logger.Info("task executed successfully",
 		"task_id", evt.TaskID,
 		"task_type", evt.TaskType,
-		"schedule_type", evt.ScheduleType,
+		"status_code", result.StatusCode,
 	)
-	// TODO(Phase 3): dispatch to task-type handler (HTTP, gRPC, etc.)
 	return nil
 }
