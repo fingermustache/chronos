@@ -24,7 +24,8 @@ Stores scheduled task definitions and configuration.
 | `enabled` | `BOOLEAN` | NO | `true` | Whether the task is active |
 | `max_retries` | `INTEGER` | NO | `3` | Maximum retry attempts on failure |
 | `timeout_seconds` | `INTEGER` | NO | `300` | Execution timeout in seconds — must be between 1 and 600 (enforced by `CHECK` constraint and API validation) |
-| `next_execution_time` | `TIMESTAMPTZ` | YES | `NULL` | Next scheduled run — set by scheduler |
+| `timezone` | `VARCHAR(64)` | YES | `NULL` | IANA timezone name (e.g. `America/New_York`). `NULL` means UTC. Affects cron schedule evaluation only |
+| `next_execution_time` | `TIMESTAMPTZ` | YES | `NULL` | Next scheduled run — always stored as UTC, calculated in the task's timezone |
 | `created_at` | `TIMESTAMPTZ` | NO | `NOW()` | Creation timestamp |
 | `updated_at` | `TIMESTAMPTZ` | NO | `NOW()` | Last update — auto-updated via trigger |
 | `deleted_at` | `TIMESTAMPTZ` | YES | `NULL` | Soft delete timestamp — `NULL` means active |
@@ -123,8 +124,8 @@ Migrations live in `src/database/migrations/` and follow the
 000001_create_tasks_table.down.sql
 000002_create_execution_history_table.up.sql
 000002_create_execution_history_table.down.sql
-000003_add_next_execution_time_index.up.sql
-000003_add_next_execution_time_index.down.sql
+000003_add_timezone_to_tasks.up.sql
+000003_add_timezone_to_tasks.down.sql
 ```
 
 To apply migrations manually:
