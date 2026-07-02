@@ -37,6 +37,7 @@ type UpdateTaskParams struct {
 	ScheduleType      *models.ScheduleType
 	ScheduleConfig    *models.JSONB
 	Timezone          *string
+	TimezoneChanged   bool
 	TaskType          *models.TaskType
 	TaskConfig        *models.JSONB
 	Enabled           *bool

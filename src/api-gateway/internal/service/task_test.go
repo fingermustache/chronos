@@ -839,6 +839,125 @@ func TestUpdate_DoesNotSetNextExecutionTime_WhenScheduleNotChanged(t *testing.T)
 	}
 }
 
+// --- timezone patch tests ---
+
+// TestUpdate_TimezoneAloneIsValidField verifies timezone alone passes the
+// "at least one field" guard.
+func TestUpdate_TimezoneAloneIsValidField(t *testing.T) {
+	id := uuid.New()
+	tz := "America/New_York"
+	tzPtr := &tz
+	repo := &mockTaskRepo{
+		getByIDFn: func(_ context.Context, _ uuid.UUID) (*models.Task, error) {
+			task := fakeTask(id)
+			task.ScheduleType = models.ScheduleTypeCron
+			task.ScheduleConfig = models.JSONB{"expression": "0 9 * * *"}
+			return task, nil
+		},
+		updateFn: func(_ context.Context, _ uuid.UUID, _ repository.UpdateTaskParams) (*models.Task, error) {
+			return fakeTask(id), nil
+		},
+	}
+	svc := service.NewTaskService(repo)
+	_, err := svc.Update(context.Background(), id, service.UpdateTaskRequest{Timezone: &tzPtr})
+	if err != nil {
+		t.Fatalf("timezone-only update should be valid, got: %v", err)
+	}
+}
+
+// TestUpdate_ClearTimezone verifies that a JSON null timezone sets
+// TimezoneChanged=true and Timezone=nil in params (clears the column).
+func TestUpdate_ClearTimezone(t *testing.T) {
+	id := uuid.New()
+	var captured repository.UpdateTaskParams
+	repo := &mockTaskRepo{
+		getByIDFn: func(_ context.Context, _ uuid.UUID) (*models.Task, error) {
+			task := fakeTask(id)
+			task.ScheduleType = models.ScheduleTypeInterval
+			task.ScheduleConfig = models.JSONB{"seconds": float64(3600)}
+			return task, nil
+		},
+		updateFn: func(_ context.Context, _ uuid.UUID, p repository.UpdateTaskParams) (*models.Task, error) {
+			captured = p
+			return fakeTask(id), nil
+		},
+	}
+	svc := service.NewTaskService(repo)
+	var nilTz *string // inner nil → "timezone": null in JSON
+	_, err := svc.Update(context.Background(), id, service.UpdateTaskRequest{Timezone: &nilTz})
+	if err != nil {
+		t.Fatalf("unexpected error clearing timezone: %v", err)
+	}
+	if !captured.TimezoneChanged {
+		t.Error("expected TimezoneChanged=true when timezone is explicitly null")
+	}
+	if captured.Timezone != nil {
+		t.Errorf("expected Timezone=nil, got %v", *captured.Timezone)
+	}
+}
+
+// TestUpdate_RecalculatesNextExecutionTime_WhenOnlyTimezoneChanges verifies that
+// a timezone-only PATCH on a cron task recalculates next_execution_time.
+func TestUpdate_RecalculatesNextExecutionTime_WhenOnlyTimezoneChanges(t *testing.T) {
+	id := uuid.New()
+	var captured repository.UpdateTaskParams
+	repo := &mockTaskRepo{
+		getByIDFn: func(_ context.Context, _ uuid.UUID) (*models.Task, error) {
+			task := fakeTask(id)
+			task.ScheduleType = models.ScheduleTypeCron
+			task.ScheduleConfig = models.JSONB{"expression": "0 9 * * *"}
+			return task, nil
+		},
+		updateFn: func(_ context.Context, _ uuid.UUID, p repository.UpdateTaskParams) (*models.Task, error) {
+			captured = p
+			return fakeTask(id), nil
+		},
+	}
+	svc := service.NewTaskService(repo)
+	tz := "America/New_York"
+	tzPtr := &tz
+	before := time.Now().UTC()
+	_, err := svc.Update(context.Background(), id, service.UpdateTaskRequest{Timezone: &tzPtr})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if captured.NextExecutionTime == nil {
+		t.Fatal("expected NextExecutionTime to be recalculated for cron task, got nil")
+	}
+	if !captured.NextExecutionTime.After(before) {
+		t.Errorf("recalculated NextExecutionTime %v should be after %v", captured.NextExecutionTime, before)
+	}
+}
+
+// TestUpdate_NoRecalculation_WhenOnlyTimezoneChanges_IntervalTask verifies that
+// timezone-only changes to interval tasks leave next_execution_time untouched.
+func TestUpdate_NoRecalculation_WhenOnlyTimezoneChanges_IntervalTask(t *testing.T) {
+	id := uuid.New()
+	var captured repository.UpdateTaskParams
+	repo := &mockTaskRepo{
+		getByIDFn: func(_ context.Context, _ uuid.UUID) (*models.Task, error) {
+			task := fakeTask(id)
+			task.ScheduleType = models.ScheduleTypeInterval
+			task.ScheduleConfig = models.JSONB{"seconds": float64(3600)}
+			return task, nil
+		},
+		updateFn: func(_ context.Context, _ uuid.UUID, p repository.UpdateTaskParams) (*models.Task, error) {
+			captured = p
+			return fakeTask(id), nil
+		},
+	}
+	svc := service.NewTaskService(repo)
+	tz := "America/New_York"
+	tzPtr := &tz
+	_, err := svc.Update(context.Background(), id, service.UpdateTaskRequest{Timezone: &tzPtr})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if captured.NextExecutionTime != nil {
+		t.Errorf("expected NextExecutionTime to be nil for interval timezone-only change, got %v", captured.NextExecutionTime)
+	}
+}
+
 // --- Delete tests ---
 
 func TestDelete_NotFound(t *testing.T) {

@@ -42,7 +42,7 @@ type UpdateTaskRequest struct {
 	Description    *string                 `json:"description"`
 	ScheduleType   *string                 `json:"schedule_type"`
 	ScheduleConfig *map[string]interface{} `json:"schedule_config"`
-	Timezone       *string                 `json:"timezone"`
+	Timezone       **string                `json:"timezone"`
 	TaskType       *string                 `json:"task_type"`
 	TaskConfig     *map[string]interface{} `json:"task_config"`
 	Enabled        *bool                   `json:"enabled"`
@@ -203,13 +203,38 @@ func (s *taskService) Update(ctx context.Context, id uuid.UUID, req UpdateTaskRe
 		taskConfig = &tc
 	}
 
+	// Unpack **string timezone: nil outer = not provided; non-nil outer = explicitly set (inner may be nil to clear)
+	var tzChanged bool
+	var tzValue *string
+	if req.Timezone != nil {
+		tzChanged = true
+		tzValue = *req.Timezone
+	}
+
 	var nextExecTime *time.Time
 	if req.ScheduleType != nil && req.ScheduleConfig != nil {
-		t, err := calculateNextExecutionTime(models.ScheduleType(*req.ScheduleType), *req.ScheduleConfig, time.Now().UTC(), req.Timezone)
+		t, err := calculateNextExecutionTime(models.ScheduleType(*req.ScheduleType), *req.ScheduleConfig, time.Now().UTC(), tzValue)
 		if err != nil {
 			return nil, err
 		}
 		nextExecTime = &t
+	} else if tzChanged {
+		// Timezone changed but schedule was not supplied — fetch the existing task and
+		// recalculate next_execution_time for cron tasks (interval/once are tz-agnostic).
+		existing, err := s.repo.GetByID(ctx, id)
+		if err != nil {
+			if errors.Is(err, repository.ErrTaskNotFound) {
+				return nil, ErrTaskNotFound
+			}
+			return nil, fmt.Errorf("get task for tz recalc: %w", err)
+		}
+		if existing.ScheduleType == models.ScheduleTypeCron {
+			t, err := calculateNextExecutionTime(existing.ScheduleType, map[string]interface{}(existing.ScheduleConfig), time.Now().UTC(), tzValue)
+			if err != nil {
+				return nil, err
+			}
+			nextExecTime = &t
+		}
 	}
 
 	params := repository.UpdateTaskParams{
@@ -217,7 +242,8 @@ func (s *taskService) Update(ctx context.Context, id uuid.UUID, req UpdateTaskRe
 		Description:       req.Description,
 		ScheduleType:      scheduleType,
 		ScheduleConfig:    scheduleConfig,
-		Timezone:          req.Timezone,
+		Timezone:          tzValue,
+		TimezoneChanged:   tzChanged,
 		TaskType:          taskType,
 		TaskConfig:        taskConfig,
 		Enabled:           req.Enabled,
@@ -299,7 +325,7 @@ func validateCreate(req CreateTaskRequest) error {
 
 func validateUpdate(req UpdateTaskRequest) error {
 	if req.Name == nil && req.Description == nil && req.ScheduleType == nil &&
-		req.ScheduleConfig == nil && req.TaskType == nil && req.TaskConfig == nil &&
+		req.ScheduleConfig == nil && req.Timezone == nil && req.TaskType == nil && req.TaskConfig == nil &&
 		req.Enabled == nil && req.MaxRetries == nil && req.TimeoutSeconds == nil {
 		return &ValidationError{Message: "request body must include at least one field to update"}
 	}
@@ -325,8 +351,10 @@ func validateUpdate(req UpdateTaskRequest) error {
 			return err
 		}
 	}
-	if err := validateTimezone(req.Timezone); err != nil {
-		return err
+	if req.Timezone != nil {
+		if err := validateTimezone(*req.Timezone); err != nil {
+			return err
+		}
 	}
 	if req.TaskType != nil && !models.TaskType(*req.TaskType).IsValid() {
 		return &ValidationError{Message: "task_type must be one of: http, command, grpc"}
