@@ -283,6 +283,9 @@ func validateUpdate(req UpdateTaskRequest) error {
 	if req.ScheduleType != nil && !models.ScheduleType(*req.ScheduleType).IsValid() {
 		return &ValidationError{Message: "schedule_type must be one of: cron, interval, once"}
 	}
+	if req.ScheduleConfig != nil && req.ScheduleType == nil {
+		return &ValidationError{Message: "schedule_type is required when schedule_config is provided"}
+	}
 	if req.ScheduleType != nil && req.ScheduleConfig != nil {
 		if err := validateScheduleConfig(models.ScheduleType(*req.ScheduleType), *req.ScheduleConfig); err != nil {
 			return err
@@ -344,8 +347,12 @@ func validateScheduleConfig(scheduleType models.ScheduleType, cfg map[string]int
 		if !ok || s == "" {
 			return &ValidationError{Message: "schedule_config.run_at must be a non-empty string"}
 		}
-		if _, err := time.Parse(time.RFC3339, s); err != nil {
+		t, err := time.Parse(time.RFC3339, s)
+		if err != nil {
 			return &ValidationError{Message: "schedule_config.run_at must be a valid RFC3339 timestamp (e.g. 2026-01-01T00:00:00Z)"}
+		}
+		if !t.After(time.Now().UTC()) {
+			return &ValidationError{Message: "schedule_config.run_at must be in the future"}
 		}
 	}
 	return nil

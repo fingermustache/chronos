@@ -562,7 +562,31 @@ func TestCreate_OnceValidRunAt(t *testing.T) {
 	}
 }
 
+func TestCreate_OncePastRunAt(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	req := validCreateReq()
+	req.ScheduleType = "once"
+	req.ScheduleConfig = map[string]interface{}{"run_at": "2020-01-01T00:00:00Z"}
+	_, err := svc.Create(context.Background(), req)
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError for past run_at, got %T: %v", err, err)
+	}
+}
+
 // --- schedule_config validation tests (Update) ---
+
+func TestUpdate_ScheduleConfigWithoutScheduleType(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	sc := map[string]interface{}{"seconds": float64(3600)}
+	_, err := svc.Update(context.Background(), uuid.New(), service.UpdateTaskRequest{
+		ScheduleConfig: &sc,
+	})
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError when schedule_config provided without schedule_type, got %T: %v", err, err)
+	}
+}
 
 func TestUpdate_CronInvalidExpression(t *testing.T) {
 	svc := service.NewTaskService(&mockTaskRepo{})
@@ -603,6 +627,77 @@ func TestUpdate_OnceInvalidRunAt(t *testing.T) {
 	var ve *service.ValidationError
 	if !errors.As(err, &ve) {
 		t.Fatalf("expected ValidationError, got %T: %v", err, err)
+	}
+}
+
+func TestUpdate_OncePastRunAt(t *testing.T) {
+	svc := service.NewTaskService(&mockTaskRepo{})
+	st := "once"
+	sc := map[string]interface{}{"run_at": "2020-01-01T00:00:00Z"}
+	_, err := svc.Update(context.Background(), uuid.New(), service.UpdateTaskRequest{
+		ScheduleType:   &st,
+		ScheduleConfig: &sc,
+	})
+	var ve *service.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError for past run_at, got %T: %v", err, err)
+	}
+}
+
+func TestUpdate_CronValidExpression(t *testing.T) {
+	id := uuid.New()
+	repo := &mockTaskRepo{
+		updateFn: func(_ context.Context, _ uuid.UUID, _ repository.UpdateTaskParams) (*models.Task, error) {
+			return fakeTask(id), nil
+		},
+	}
+	svc := service.NewTaskService(repo)
+	st := "cron"
+	sc := map[string]interface{}{"expression": "0 12 * * *"}
+	_, err := svc.Update(context.Background(), id, service.UpdateTaskRequest{
+		ScheduleType:   &st,
+		ScheduleConfig: &sc,
+	})
+	if err != nil {
+		t.Fatalf("expected no error for valid cron update, got: %v", err)
+	}
+}
+
+func TestUpdate_IntervalValidSeconds(t *testing.T) {
+	id := uuid.New()
+	repo := &mockTaskRepo{
+		updateFn: func(_ context.Context, _ uuid.UUID, _ repository.UpdateTaskParams) (*models.Task, error) {
+			return fakeTask(id), nil
+		},
+	}
+	svc := service.NewTaskService(repo)
+	st := "interval"
+	sc := map[string]interface{}{"seconds": float64(3600)}
+	_, err := svc.Update(context.Background(), id, service.UpdateTaskRequest{
+		ScheduleType:   &st,
+		ScheduleConfig: &sc,
+	})
+	if err != nil {
+		t.Fatalf("expected no error for valid interval update, got: %v", err)
+	}
+}
+
+func TestUpdate_OnceValidRunAt(t *testing.T) {
+	id := uuid.New()
+	repo := &mockTaskRepo{
+		updateFn: func(_ context.Context, _ uuid.UUID, _ repository.UpdateTaskParams) (*models.Task, error) {
+			return fakeTask(id), nil
+		},
+	}
+	svc := service.NewTaskService(repo)
+	st := "once"
+	sc := map[string]interface{}{"run_at": "2030-01-01T00:00:00Z"}
+	_, err := svc.Update(context.Background(), id, service.UpdateTaskRequest{
+		ScheduleType:   &st,
+		ScheduleConfig: &sc,
+	})
+	if err != nil {
+		t.Fatalf("expected no error for valid once update, got: %v", err)
 	}
 }
 
