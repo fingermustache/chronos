@@ -5,24 +5,14 @@ import (
 	"strconv"
 
 	"github.com/fingermustache/chronos/pkg/broker"
-	"github.com/fingermustache/chronos/pkg/database"
 )
 
 type Config struct {
-	Database database.Config
-	Broker   broker.Config
+	Broker broker.Config
 }
 
 func Load() Config {
 	return Config{
-		Database: database.Config{
-			Host:     getEnv("DB_HOST", "localhost"),
-			Port:     getEnvInt("DB_PORT", 5432),
-			User:     getEnv("DB_USER", "chronos"),
-			Password: getEnv("DB_PASSWORD", "chronos"),
-			Database: getEnv("DB_NAME", "chronos"),
-			SSLMode:  getEnv("DB_SSLMODE", "disable"),
-		},
 		Broker: broker.DefaultConfig(),
 	}
 }

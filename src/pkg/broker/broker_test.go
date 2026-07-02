@@ -3,6 +3,7 @@
 package broker_test
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -94,8 +95,8 @@ var _ broker.Consumer = (*mockConsumer)(nil)
 
 type mockPublisher struct{}
 
-func (m *mockPublisher) Publish(_ broker.TaskTriggerEvent) error { return nil }
-func (m *mockPublisher) Close() error                            { return nil }
+func (m *mockPublisher) Publish(_ context.Context, _ broker.TaskTriggerEvent) error { return nil }
+func (m *mockPublisher) Close() error                                                { return nil }
 
 type mockConsumer struct{}
 

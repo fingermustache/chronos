@@ -61,6 +61,9 @@ func TestIntegration_PublishAndConsume(t *testing.T) {
 	pub, sub, cleanup := newTestBroker(t)
 	defer cleanup()
 
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	sent := broker.TaskTriggerEvent{
 		TaskID:         uuid.New(),
 		ScheduleType:   "cron",
@@ -71,13 +74,11 @@ func TestIntegration_PublishAndConsume(t *testing.T) {
 		TriggeredAt:    time.Now().UTC().Truncate(time.Second),
 	}
 
-	if err := pub.Publish(sent); err != nil {
+	if err := pub.Publish(ctx, sent); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
 
 	received := make(chan broker.TaskTriggerEvent, 1)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 
 	go func() {
 		sub.Consume(func(evt broker.TaskTriggerEvent) error {
@@ -106,6 +107,9 @@ func TestIntegration_DeadLetterOnNack(t *testing.T) {
 	pub, sub, cleanup := newTestBroker(t)
 	defer cleanup()
 
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	evt := broker.TaskTriggerEvent{
 		TaskID:         uuid.New(),
 		ScheduleType:   "once",
@@ -116,13 +120,9 @@ func TestIntegration_DeadLetterOnNack(t *testing.T) {
 		TriggeredAt:    time.Now().UTC(),
 	}
 
-	if err := pub.Publish(evt); err != nil {
+	if err := pub.Publish(ctx, evt); err != nil {
 		t.Fatalf("publish: %v", err)
 	}
-
-	// Consumer returns an error → message should be nacked and routed to DLQ
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 
 	done := make(chan struct{})
 	go func() {

@@ -2,6 +2,7 @@ package execution
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os/signal"
 	"syscall"
@@ -21,7 +22,9 @@ func New(consumer broker.Consumer, logger *slog.Logger) *Executor {
 	return &Executor{consumer: consumer, logger: logger}
 }
 
-// Run starts the consumer loop and blocks until SIGTERM or SIGINT.
+// Run starts the consumer loop and blocks until SIGTERM or SIGINT, then waits
+// for the consumer goroutine to drain before returning. Returns a non-nil error
+// if the broker closes the channel unexpectedly.
 func (e *Executor) Run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
@@ -34,9 +37,16 @@ func (e *Executor) Run() error {
 
 	select {
 	case <-ctx.Done():
+		// Signal the consumer to stop cleanly. Close() sets the closing flag
+		// before closing the channel, so Consume() returns nil rather than
+		// ErrConsumerClosed. We then wait for the goroutine to finish draining.
 		e.logger.Info("executor shutting down")
-		return e.consumer.Close()
+		e.consumer.Close()
+		return <-errCh
 	case err := <-errCh:
+		if errors.Is(err, broker.ErrConsumerClosed) {
+			e.logger.Error("executor: broker closed consumer channel unexpectedly")
+		}
 		return err
 	}
 }

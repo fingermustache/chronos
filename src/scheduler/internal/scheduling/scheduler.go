@@ -45,7 +45,7 @@ func (s *Scheduler) Run() error {
 }
 
 // poll claims due tasks and publishes trigger events.
-// Full implementation: Issue #8 (DB-polling scheduling engine).
+// Full claim + next_execution_time advance logic: Issue #8.
 func (s *Scheduler) poll(ctx context.Context) {
 	tasks, err := s.repo.GetDueTasks(ctx, 10)
 	if err != nil {
@@ -54,11 +54,12 @@ func (s *Scheduler) poll(ctx context.Context) {
 	}
 	for _, task := range tasks {
 		evt := broker.NewTaskTriggerEvent(task)
-		if err := s.pub.Publish(evt); err != nil {
+		if err := s.pub.Publish(ctx, evt); err != nil {
 			s.logger.Error("poll: publish trigger", "task_id", task.ID, "error", err)
 			continue
 		}
+		// TODO(Issue #8): advance next_execution_time after successful publish
+		// to prevent duplicate triggers on the next poll cycle.
 		s.logger.Info("poll: triggered task", "task_id", task.ID)
 	}
 }
-

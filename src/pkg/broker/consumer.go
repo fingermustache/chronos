@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync/atomic"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -12,38 +13,23 @@ import (
 // nacked without requeue, routing it to the dead-letter queue.
 var ErrNack = errors.New("broker: message rejected")
 
+// ErrConsumerClosed is returned by Consume when the broker closes the channel
+// unexpectedly (as opposed to a clean shutdown via Close).
+var ErrConsumerClosed = errors.New("broker: consumer channel closed unexpectedly")
+
 // Consumer consumes TaskTriggerEvents from the broker.
 type Consumer interface {
-	// Consume blocks, calling handler for each message. Returns when the
-	// channel is closed or a fatal error occurs. Returning ErrNack from
-	// handler nacks without requeue; any other error also nacks without requeue.
+	// Consume blocks, calling handler for each message. Returns nil on clean
+	// shutdown (via Close). Returns ErrConsumerClosed if the broker closes the
+	// channel unexpectedly. Returning ErrNack from handler nacks without requeue.
 	Consume(handler func(TaskTriggerEvent) error) error
 	Close() error
 }
 
-// PeekDLQ reads one message from the dead-letter queue without acknowledging
-// it. Returns nil if the queue is empty. Intended for testing only.
-func PeekDLQ(c Consumer) (*TaskTriggerEvent, error) {
-	ac, ok := c.(*amqpConsumer)
-	if !ok {
-		return nil, fmt.Errorf("PeekDLQ: not an amqpConsumer")
-	}
-	msg, ok2, err := ac.ch.Get(QueueDLQ, false)
-	if err != nil {
-		return nil, fmt.Errorf("broker: peek DLQ: %w", err)
-	}
-	if !ok2 {
-		return nil, nil
-	}
-	var evt TaskTriggerEvent
-	if err := json.Unmarshal(msg.Body, &evt); err != nil {
-		return nil, fmt.Errorf("broker: unmarshal DLQ message: %w", err)
-	}
-	return &evt, nil
-}
-
 type amqpConsumer struct {
-	ch *amqp.Channel
+	conn    *Connection
+	ch      *amqp.Channel
+	closing atomic.Bool
 }
 
 // NewConsumer creates a Consumer backed by a dedicated AMQP channel.
@@ -55,7 +41,7 @@ func NewConsumer(conn *Connection) (Consumer, error) {
 	if err := ch.Qos(1, 0, false); err != nil {
 		return nil, fmt.Errorf("broker: set QoS: %w", err)
 	}
-	return &amqpConsumer{ch: ch}, nil
+	return &amqpConsumer{conn: conn, ch: ch}, nil
 }
 
 func (c *amqpConsumer) Consume(handler func(TaskTriggerEvent) error) error {
@@ -76,9 +62,16 @@ func (c *amqpConsumer) Consume(handler func(TaskTriggerEvent) error) error {
 		}
 		d.Ack(false)
 	}
-	return nil
+
+	// closing flag is set by Close() before ch.Close() — distinguishes
+	// intentional shutdown from broker-initiated channel termination.
+	if c.closing.Load() {
+		return nil
+	}
+	return ErrConsumerClosed
 }
 
 func (c *amqpConsumer) Close() error {
+	c.closing.Store(true)
 	return c.ch.Close()
 }
