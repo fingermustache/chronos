@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"os"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/fingermustache/chronos/pkg/broker"
 	"github.com/fingermustache/chronos/pkg/database"

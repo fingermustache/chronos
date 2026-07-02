@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/fingermustache/chronos/api-gateway/internal/config"
 	"github.com/fingermustache/chronos/api-gateway/internal/repository"

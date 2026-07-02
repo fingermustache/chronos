@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/fingermustache/chronos/api-gateway/internal/repository"
 	"github.com/fingermustache/chronos/pkg/models"
@@ -29,6 +30,7 @@ type CreateTaskRequest struct {
 	Description    *string                `json:"description"`
 	ScheduleType   string                 `json:"schedule_type"`
 	ScheduleConfig map[string]interface{} `json:"schedule_config"`
+	Timezone       *string                `json:"timezone"`
 	TaskType       string                 `json:"task_type"`
 	TaskConfig     map[string]interface{} `json:"task_config"`
 	MaxRetries     int                    `json:"max_retries"`
@@ -40,6 +42,7 @@ type UpdateTaskRequest struct {
 	Description    *string                 `json:"description"`
 	ScheduleType   *string                 `json:"schedule_type"`
 	ScheduleConfig *map[string]interface{} `json:"schedule_config"`
+	Timezone       **string                `json:"timezone"`
 	TaskType       *string                 `json:"task_type"`
 	TaskConfig     *map[string]interface{} `json:"task_config"`
 	Enabled        *bool                   `json:"enabled"`
@@ -83,7 +86,7 @@ func (s *taskService) Create(ctx context.Context, req CreateTaskRequest) (*model
 		return nil, err
 	}
 
-	nextExec, err := calculateNextExecutionTime(models.ScheduleType(req.ScheduleType), req.ScheduleConfig, time.Now().UTC())
+	nextExec, err := calculateNextExecutionTime(models.ScheduleType(req.ScheduleType), req.ScheduleConfig, time.Now().UTC(), req.Timezone)
 	if err != nil {
 		return nil, err
 	}
@@ -93,6 +96,7 @@ func (s *taskService) Create(ctx context.Context, req CreateTaskRequest) (*model
 		Description:       req.Description,
 		ScheduleType:      models.ScheduleType(req.ScheduleType),
 		ScheduleConfig:    models.JSONB(req.ScheduleConfig),
+		Timezone:          req.Timezone,
 		TaskType:          models.TaskType(req.TaskType),
 		TaskConfig:        models.JSONB(req.TaskConfig),
 		MaxRetries:        req.MaxRetries,
@@ -199,13 +203,38 @@ func (s *taskService) Update(ctx context.Context, id uuid.UUID, req UpdateTaskRe
 		taskConfig = &tc
 	}
 
+	// Unpack **string timezone: nil outer = not provided; non-nil outer = explicitly set (inner may be nil to clear)
+	var tzChanged bool
+	var tzValue *string
+	if req.Timezone != nil {
+		tzChanged = true
+		tzValue = *req.Timezone
+	}
+
 	var nextExecTime *time.Time
 	if req.ScheduleType != nil && req.ScheduleConfig != nil {
-		t, err := calculateNextExecutionTime(models.ScheduleType(*req.ScheduleType), *req.ScheduleConfig, time.Now().UTC())
+		t, err := calculateNextExecutionTime(models.ScheduleType(*req.ScheduleType), *req.ScheduleConfig, time.Now().UTC(), tzValue)
 		if err != nil {
 			return nil, err
 		}
 		nextExecTime = &t
+	} else if tzChanged {
+		// Timezone changed but schedule was not supplied — fetch the existing task and
+		// recalculate next_execution_time for cron tasks (interval/once are tz-agnostic).
+		existing, err := s.repo.GetByID(ctx, id)
+		if err != nil {
+			if errors.Is(err, repository.ErrTaskNotFound) {
+				return nil, ErrTaskNotFound
+			}
+			return nil, fmt.Errorf("get task for tz recalc: %w", err)
+		}
+		if existing.ScheduleType == models.ScheduleTypeCron {
+			t, err := calculateNextExecutionTime(existing.ScheduleType, map[string]interface{}(existing.ScheduleConfig), time.Now().UTC(), tzValue)
+			if err != nil {
+				return nil, err
+			}
+			nextExecTime = &t
+		}
 	}
 
 	params := repository.UpdateTaskParams{
@@ -213,6 +242,8 @@ func (s *taskService) Update(ctx context.Context, id uuid.UUID, req UpdateTaskRe
 		Description:       req.Description,
 		ScheduleType:      scheduleType,
 		ScheduleConfig:    scheduleConfig,
+		Timezone:          tzValue,
+		TimezoneChanged:   tzChanged,
 		TaskType:          taskType,
 		TaskConfig:        taskConfig,
 		Enabled:           req.Enabled,
@@ -251,6 +282,16 @@ const (
 	minTimeoutSeconds  = 1
 )
 
+func validateTimezone(tz *string) error {
+	if tz == nil {
+		return nil
+	}
+	if _, err := time.LoadLocation(*tz); err != nil {
+		return &ValidationError{Message: fmt.Sprintf("timezone %q is not a valid IANA timezone name", *tz)}
+	}
+	return nil
+}
+
 func validateCreate(req CreateTaskRequest) error {
 	if req.Name == "" {
 		return &ValidationError{Message: "name is required"}
@@ -267,6 +308,9 @@ func validateCreate(req CreateTaskRequest) error {
 	if err := validateScheduleConfig(models.ScheduleType(req.ScheduleType), req.ScheduleConfig); err != nil {
 		return err
 	}
+	if err := validateTimezone(req.Timezone); err != nil {
+		return err
+	}
 	if !models.TaskType(req.TaskType).IsValid() {
 		return &ValidationError{Message: "task_type must be one of: http, command, grpc"}
 	}
@@ -281,7 +325,7 @@ func validateCreate(req CreateTaskRequest) error {
 
 func validateUpdate(req UpdateTaskRequest) error {
 	if req.Name == nil && req.Description == nil && req.ScheduleType == nil &&
-		req.ScheduleConfig == nil && req.TaskType == nil && req.TaskConfig == nil &&
+		req.ScheduleConfig == nil && req.Timezone == nil && req.TaskType == nil && req.TaskConfig == nil &&
 		req.Enabled == nil && req.MaxRetries == nil && req.TimeoutSeconds == nil {
 		return &ValidationError{Message: "request body must include at least one field to update"}
 	}
@@ -304,6 +348,11 @@ func validateUpdate(req UpdateTaskRequest) error {
 	}
 	if req.ScheduleType != nil && req.ScheduleConfig != nil {
 		if err := validateScheduleConfig(models.ScheduleType(*req.ScheduleType), *req.ScheduleConfig); err != nil {
+			return err
+		}
+	}
+	if req.Timezone != nil {
+		if err := validateTimezone(*req.Timezone); err != nil {
 			return err
 		}
 	}
@@ -372,7 +421,7 @@ func extractRunAt(cfg map[string]interface{}) (time.Time, bool) {
 	return t.UTC(), true
 }
 
-func calculateNextExecutionTime(scheduleType models.ScheduleType, cfg map[string]interface{}, now time.Time) (time.Time, error) {
+func calculateNextExecutionTime(scheduleType models.ScheduleType, cfg map[string]interface{}, now time.Time, timezone *string) (time.Time, error) {
 	switch scheduleType {
 	case models.ScheduleTypeCron:
 		expr, ok := extractCronExpression(cfg)
@@ -383,11 +432,18 @@ func calculateNextExecutionTime(scheduleType models.ScheduleType, cfg map[string
 		if err != nil {
 			return time.Time{}, fmt.Errorf("calculateNextExecutionTime: unparseable expression %q: %w", expr, err)
 		}
-		next := schedule.Next(now)
+		loc := time.UTC
+		if timezone != nil && *timezone != "" {
+			loc, err = time.LoadLocation(*timezone)
+			if err != nil {
+				return time.Time{}, fmt.Errorf("invalid timezone %q: %w", *timezone, err)
+			}
+		}
+		next := schedule.Next(now.In(loc))
 		if next.IsZero() {
 			return time.Time{}, fmt.Errorf("cron expression %q has no future occurrences after %v", expr, now)
 		}
-		return next, nil
+		return next.UTC(), nil
 	case models.ScheduleTypeInterval:
 		seconds, ok := extractIntervalSeconds(cfg)
 		if !ok {

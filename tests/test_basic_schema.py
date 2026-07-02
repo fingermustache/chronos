@@ -15,7 +15,9 @@ def fresh_schema(db_conn):
     cur = db_conn.cursor()
     cur.execute(open("src/database/migrations/000001_create_tasks_table.up.sql").read())
     cur.execute(open("src/database/migrations/000002_create_execution_history_table.up.sql").read())
+    cur.execute(open("src/database/migrations/000003_add_timezone_to_tasks.up.sql").read())
     yield
+    cur.execute(open("src/database/migrations/000003_add_timezone_to_tasks.down.sql").read())
     cur.execute(open("src/database/migrations/000002_create_execution_history_table.down.sql").read())
     cur.execute(open("src/database/migrations/000001_create_tasks_table.down.sql").read())
     cur.close()
@@ -89,5 +91,35 @@ def test_task_insert_softdelete_cascade(db_conn):
         (str(hard_task_id),)
     )
     assert cur.fetchone()[0] == 0
+
+    cur.close()
+
+
+def test_timezone_column(db_conn):
+    cur = db_conn.cursor()
+
+    # NULL timezone (default) is accepted
+    task_id = uuid.uuid4()
+    cur.execute(
+        """
+        INSERT INTO tasks (id, name, schedule_type, schedule_config, task_type, task_config)
+        VALUES (%s, 'tz-null', 'cron', '{}'::jsonb, 'http', '{}'::jsonb)
+        """,
+        (str(task_id),),
+    )
+    cur.execute("SELECT timezone FROM tasks WHERE id = %s", (str(task_id),))
+    assert cur.fetchone()[0] is None
+
+    # Named IANA timezone is stored and returned verbatim
+    task_id2 = uuid.uuid4()
+    cur.execute(
+        """
+        INSERT INTO tasks (id, name, schedule_type, schedule_config, task_type, task_config, timezone)
+        VALUES (%s, 'tz-ny', 'cron', '{}'::jsonb, 'http', '{}'::jsonb, 'America/New_York')
+        """,
+        (str(task_id2),),
+    )
+    cur.execute("SELECT timezone FROM tasks WHERE id = %s", (str(task_id2),))
+    assert cur.fetchone()[0] == "America/New_York"
 
     cur.close()

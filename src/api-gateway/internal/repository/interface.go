@@ -23,6 +23,7 @@ type CreateTaskParams struct {
 	Description       *string
 	ScheduleType      models.ScheduleType
 	ScheduleConfig    models.JSONB
+	Timezone          *string
 	TaskType          models.TaskType
 	TaskConfig        models.JSONB
 	MaxRetries        int
@@ -35,6 +36,8 @@ type UpdateTaskParams struct {
 	Description       *string
 	ScheduleType      *models.ScheduleType
 	ScheduleConfig    *models.JSONB
+	Timezone          *string
+	TimezoneChanged   bool
 	TaskType          *models.TaskType
 	TaskConfig        *models.JSONB
 	Enabled           *bool

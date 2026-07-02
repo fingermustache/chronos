@@ -32,7 +32,7 @@ func TestCalculateNextExecutionTime_CronNeverReturnsZero(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := map[string]interface{}{"expression": tc.expr}
-			got, err := calculateNextExecutionTime(models.ScheduleTypeCron, cfg, now)
+			got, err := calculateNextExecutionTime(models.ScheduleTypeCron, cfg, now, nil)
 			if err != nil {
 				t.Fatalf("unexpected error for %q: %v", tc.expr, err)
 			}
@@ -50,7 +50,7 @@ func TestCalculateNextExecutionTime_IntervalIsExact(t *testing.T) {
 	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 	cfg := map[string]interface{}{"seconds": float64(300)}
 
-	got, err := calculateNextExecutionTime(models.ScheduleTypeInterval, cfg, now)
+	got, err := calculateNextExecutionTime(models.ScheduleTypeInterval, cfg, now, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestCalculateNextExecutionTime_OnceEqualsRunAt(t *testing.T) {
 	runAt := "2030-12-31T23:59:00Z"
 	cfg := map[string]interface{}{"run_at": runAt}
 
-	got, err := calculateNextExecutionTime(models.ScheduleTypeOnce, cfg, now)
+	got, err := calculateNextExecutionTime(models.ScheduleTypeOnce, cfg, now, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
