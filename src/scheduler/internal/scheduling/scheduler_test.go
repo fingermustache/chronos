@@ -25,15 +25,15 @@ func (m *mockDB) WithTx(ctx context.Context, fn func(database.Querier) error) er
 }
 
 type mockRepo struct {
-	claimedTasks     []*models.Task
-	claimErr         error
-	updatedID        uuid.UUID
-	updatedNext      time.Time
-	disabledID       uuid.UUID
-	updateErr        error
-	disableErr       error
-	updateCalls      int
-	disableCalls     int
+	claimedTasks []*models.Task
+	claimErr     error
+	updatedID    uuid.UUID
+	updatedNext  time.Time
+	disabledID   uuid.UUID
+	updateErr    error
+	disableErr   error
+	updateCalls  int
+	disableCalls int
 }
 
 func (r *mockRepo) ClaimDueTasks(_ context.Context, _ database.Querier, _ int) ([]*models.Task, error) {
@@ -58,7 +58,7 @@ func (r *mockRepo) DisableTask(_ context.Context, _ database.Querier, id uuid.UU
 }
 
 type mockPublisher struct {
-	published []broker.TaskTriggerEvent
+	published  []broker.TaskTriggerEvent
 	publishErr error
 }
 

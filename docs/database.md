@@ -14,7 +14,7 @@ Stores scheduled task definitions and configuration.
 
 | Column | Type | Nullable | Default | Description |
 |---|---|---|---|---|
-| `id` | `UUID` | NO | `gen_random_uuid()` | Primary key |
+| `id` | `UUID` | NO | `uuid_generate_v4()` | Primary key |
 | `name` | `VARCHAR(255)` | NO | — | Task name, unique |
 | `description` | `TEXT` | YES | `NULL` | Optional description |
 | `schedule_type` | `VARCHAR(20)` | NO | — | `cron`, `interval`, or `once` |
@@ -46,19 +46,16 @@ service writes to this table.
 
 | Column | Type | Nullable | Default | Description |
 |---|---|---|---|---|
-| `id` | `UUID` | NO | `gen_random_uuid()` | Primary key |
+| `id` | `UUID` | NO | `uuid_generate_v4()` | Primary key |
 | `task_id` | `UUID` | NO | — | Foreign key → `tasks.id` |
 | `started_at` | `TIMESTAMPTZ` | NO | `NOW()` | Execution start time |
 | `completed_at` | `TIMESTAMPTZ` | YES | `NULL` | End time — `NULL` while running |
-| `status` | `VARCHAR(20)` | NO | `pending` | `pending`, `running`, `succeeded`, `failed`, or `timeout` |
-| `error_message` | `TEXT` | YES | `NULL` | Error detail if `status = failed` |
-| `output` | `TEXT` | YES | `NULL` | Stdout/response body from execution |
+| `status` | `task_status` (enum) | NO | — | `pending`, `running`, `success`, `failed`, or `timeout` — no column default, the executor always sets it explicitly on insert |
+| `error_message` | `TEXT` | YES | `NULL` | Error detail if `status = failed` or `timeout` |
+| `output` | `TEXT` | YES | `NULL` | Response body / stdout from execution, recorded on both success and failure |
 | `retry_count` | `INTEGER` | NO | `0` | Attempt number — `0` is the first attempt |
-| `duration_ms` | `BIGINT` | YES | `NULL` | Wall-clock duration in milliseconds |
-| `metadata` | `JSONB` | NO | `'{}'` | Arbitrary execution context (headers, env, etc.) |
-
-> **Note:** `duration_ms` uses `BIGINT` rather than `INTEGER` to safely
-> represent long-running tasks. `INTEGER` overflows at ~24.8 days.
+| `duration_ms` | `INTEGER` | YES | `NULL` | Wall-clock duration in milliseconds — `CHECK (duration_ms >= 0)` |
+| `metadata` | `JSONB` | YES | `NULL` | Arbitrary execution context (headers, env, etc.) |
 
 **Indexes:**
 

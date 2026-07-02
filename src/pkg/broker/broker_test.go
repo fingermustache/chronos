@@ -96,9 +96,9 @@ var _ broker.Consumer = (*mockConsumer)(nil)
 type mockPublisher struct{}
 
 func (m *mockPublisher) Publish(_ context.Context, _ broker.TaskTriggerEvent) error { return nil }
-func (m *mockPublisher) Close() error                                                { return nil }
+func (m *mockPublisher) Close() error                                               { return nil }
 
 type mockConsumer struct{}
 
 func (m *mockConsumer) Consume(_ func(broker.TaskTriggerEvent) error) error { return nil }
-func (m *mockConsumer) Close() error                                         { return nil }
+func (m *mockConsumer) Close() error                                        { return nil }
