@@ -38,17 +38,15 @@ func truncate(t *testing.T) {
 	testutil.Truncate(t, testDB, "execution_history", "tasks")
 }
 
-// seedTask inserts directly into the DB — the scheduler repo is read-only
-// so tests need a way to set up state without going through the scheduler.
-func seedTask(t *testing.T, name string, enabled bool, nextExecution *time.Time) uuid.UUID {
+func seedTask(t *testing.T, name string, scheduleType string, enabled bool, nextExecution *time.Time) uuid.UUID {
 	t.Helper()
 	id := uuid.New()
 	_, err := testDB.Exec(`
 		INSERT INTO tasks (
 			id, name, schedule_type, schedule_config,
 			task_type, task_config, enabled, next_execution_time
-		) VALUES ($1, $2, 'cron', '{}'::jsonb, 'http', '{}'::jsonb, $3, $4)`,
-		id, name, enabled, nextExecution,
+		) VALUES ($1, $2, $3, '{}'::jsonb, 'http', '{}'::jsonb, $4, $5)`,
+		id, name, scheduleType, enabled, nextExecution,
 	)
 	if err != nil {
 		t.Fatalf("seedTask: %v", err)
@@ -64,7 +62,7 @@ func TestGetByID(t *testing.T) {
 	truncate(t)
 	ctx := context.Background()
 
-	id := seedTask(t, "my-task", true, nil)
+	id := seedTask(t, "my-task", "cron", true, nil)
 
 	got, err := testRepo.GetByID(ctx, id)
 	if err != nil {
@@ -89,7 +87,7 @@ func TestGetByID_SoftDeletedNotFound(t *testing.T) {
 	truncate(t)
 	ctx := context.Background()
 
-	id := seedTask(t, "deleted-task", true, nil)
+	id := seedTask(t, "deleted-task", "cron", true, nil)
 	_, _ = testDB.Exec("UPDATE tasks SET deleted_at = NOW() WHERE id = $1", id)
 
 	_, err := testRepo.GetByID(ctx, id)
@@ -98,113 +96,183 @@ func TestGetByID_SoftDeletedNotFound(t *testing.T) {
 	}
 }
 
-func TestGetDueTasks(t *testing.T) {
+func TestClaimDueTasks(t *testing.T) {
 	truncate(t)
 	ctx := context.Background()
 
 	past := time.Now().Add(-5 * time.Minute)
 	future := time.Now().Add(10 * time.Minute)
 
-	seedTask(t, "due-task-1", true, &past)
-	seedTask(t, "due-task-2", true, &past)
-	seedTask(t, "future-task", true, &future)
+	seedTask(t, "due-task-1", "cron", true, &past)
+	seedTask(t, "due-task-2", "cron", true, &past)
+	seedTask(t, "future-task", "cron", true, &future)
 
-	tasks, err := testRepo.GetDueTasks(ctx, 10)
-	if err != nil {
+	var count int
+	if err := testDB.WithTx(ctx, func(q database.Querier) error {
+		claimed, err := testRepo.ClaimDueTasks(ctx, q, 10)
+		count = len(claimed)
+		return err
+	}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(tasks) != 2 {
-		t.Errorf("got %d due tasks, want 2", len(tasks))
+	if count != 2 {
+		t.Errorf("got %d due tasks, want 2", count)
 	}
 }
 
-func TestGetDueTasks_OrderedOldestFirst(t *testing.T) {
+func TestClaimDueTasks_OrderedOldestFirst(t *testing.T) {
 	truncate(t)
 	ctx := context.Background()
 
 	oldest := time.Now().Add(-30 * time.Minute)
 	newer := time.Now().Add(-5 * time.Minute)
 
-	seedTask(t, "newer-task", true, &newer)
-	seedTask(t, "oldest-task", true, &oldest)
+	seedTask(t, "newer-task", "cron", true, &newer)
+	seedTask(t, "oldest-task", "cron", true, &oldest)
 
-	tasks, err := testRepo.GetDueTasks(ctx, 10)
-	if err != nil {
+	var firstName string
+	if err := testDB.WithTx(ctx, func(q database.Querier) error {
+		tasks, err := testRepo.ClaimDueTasks(ctx, q, 10)
+		if err != nil {
+			return err
+		}
+		if len(tasks) > 0 {
+			firstName = tasks[0].Name
+		}
+		return nil
+	}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if tasks[0].Name != "oldest-task" {
-		t.Errorf("expected oldest task first, got %q", tasks[0].Name)
+	if firstName != "oldest-task" {
+		t.Errorf("expected oldest task first, got %q", firstName)
 	}
 }
 
-func TestGetDueTasks_RespectsLimit(t *testing.T) {
+func TestClaimDueTasks_RespectsLimit(t *testing.T) {
 	truncate(t)
 	ctx := context.Background()
 
 	past := time.Now().Add(-5 * time.Minute)
 	for i := range 5 {
-		seedTask(t, fmt.Sprintf("task-%d", i), true, &past)
+		seedTask(t, fmt.Sprintf("task-%d", i), "cron", true, &past)
 	}
 
-	tasks, err := testRepo.GetDueTasks(ctx, 3)
-	if err != nil {
+	var count int
+	if err := testDB.WithTx(ctx, func(q database.Querier) error {
+		tasks, err := testRepo.ClaimDueTasks(ctx, q, 3)
+		count = len(tasks)
+		return err
+	}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(tasks) != 3 {
-		t.Errorf("got %d tasks, want 3", len(tasks))
+	if count != 3 {
+		t.Errorf("got %d tasks, want 3", count)
 	}
 }
 
-func TestGetDueTasks_ExcludesDisabled(t *testing.T) {
+func TestClaimDueTasks_ExcludesDisabled(t *testing.T) {
 	truncate(t)
 	ctx := context.Background()
 
 	past := time.Now().Add(-5 * time.Minute)
-	seedTask(t, "enabled-task", true, &past)
-	seedTask(t, "disabled-task", false, &past)
+	seedTask(t, "enabled-task", "cron", true, &past)
+	seedTask(t, "disabled-task", "cron", false, &past)
 
-	tasks, err := testRepo.GetDueTasks(ctx, 10)
-	if err != nil {
+	var count int
+	var name string
+	if err := testDB.WithTx(ctx, func(q database.Querier) error {
+		tasks, err := testRepo.ClaimDueTasks(ctx, q, 10)
+		count = len(tasks)
+		if count > 0 {
+			name = tasks[0].Name
+		}
+		return err
+	}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(tasks) != 1 {
-		t.Errorf("got %d tasks, want 1", len(tasks))
+	if count != 1 {
+		t.Errorf("got %d tasks, want 1", count)
 	}
-	if tasks[0].Name != "enabled-task" {
-		t.Errorf("got %q, want enabled-task", tasks[0].Name)
+	if name != "enabled-task" {
+		t.Errorf("got %q, want enabled-task", name)
 	}
 }
 
-func TestGetDueTasks_ExcludesSoftDeleted(t *testing.T) {
+func TestClaimDueTasks_ExcludesSoftDeleted(t *testing.T) {
 	truncate(t)
 	ctx := context.Background()
 
 	past := time.Now().Add(-5 * time.Minute)
-	id := seedTask(t, "deleted-task", true, &past)
+	id := seedTask(t, "deleted-task", "cron", true, &past)
 	_, _ = testDB.Exec("UPDATE tasks SET deleted_at = NOW() WHERE id = $1", id)
 
-	tasks, err := testRepo.GetDueTasks(ctx, 10)
-	if err != nil {
+	var count int
+	if err := testDB.WithTx(ctx, func(q database.Querier) error {
+		tasks, err := testRepo.ClaimDueTasks(ctx, q, 10)
+		count = len(tasks)
+		return err
+	}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(tasks) != 0 {
-		t.Errorf("expected 0 tasks, got %d", len(tasks))
+	if count != 0 {
+		t.Errorf("expected 0 tasks, got %d", count)
 	}
 }
 
-func TestGetDueTasks_NullNextExecutionTimeExcluded(t *testing.T) {
+func TestClaimDueTasks_NullNextExecutionTimeExcluded(t *testing.T) {
 	truncate(t)
 	ctx := context.Background()
 
-	// A task with no next_execution_time set should never be returned as due.
-	seedTask(t, "unscheduled-task", true, nil)
+	seedTask(t, "unscheduled-task", "cron", true, nil)
 
-	tasks, err := testRepo.GetDueTasks(ctx, 10)
-	if err != nil {
+	var count int
+	if err := testDB.WithTx(ctx, func(q database.Querier) error {
+		tasks, err := testRepo.ClaimDueTasks(ctx, q, 10)
+		count = len(tasks)
+		return err
+	}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(tasks) != 0 {
-		t.Errorf("expected 0 tasks, got %d", len(tasks))
+	if count != 0 {
+		t.Errorf("expected 0 tasks, got %d", count)
+	}
+}
+
+func TestClaimDueTasks_SkipsLockedRows(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	past := time.Now().Add(-5 * time.Minute)
+	for i := range 4 {
+		seedTask(t, fmt.Sprintf("task-%d", i), "cron", true, &past)
+	}
+
+	// First transaction claims 2 tasks and holds the lock.
+	tx1, err := testDB.BeginTxx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin tx1: %v", err)
+	}
+	defer tx1.Rollback()
+
+	claimed1, err := testRepo.ClaimDueTasks(ctx, tx1, 2)
+	if err != nil {
+		t.Fatalf("claim tx1: %v", err)
+	}
+	if len(claimed1) != 2 {
+		t.Fatalf("tx1 claimed %d tasks, want 2", len(claimed1))
+	}
+
+	// Second transaction claims the remaining 2 — the locked rows are skipped.
+	var count2 int
+	if err := testDB.WithTx(ctx, func(q database.Querier) error {
+		tasks, err := testRepo.ClaimDueTasks(ctx, q, 10)
+		count2 = len(tasks)
+		return err
+	}); err != nil {
+		t.Fatalf("claim tx2: %v", err)
+	}
+	if count2 != 2 {
+		t.Errorf("tx2 claimed %d tasks, want 2", count2)
 	}
 }
 
@@ -212,10 +280,12 @@ func TestUpdateNextExecutionTime(t *testing.T) {
 	truncate(t)
 	ctx := context.Background()
 
-	id := seedTask(t, "my-task", true, nil)
+	id := seedTask(t, "my-task", "cron", true, nil)
 	next := time.Now().Add(1 * time.Hour).UTC().Truncate(time.Millisecond)
 
-	if err := testRepo.UpdateNextExecutionTime(ctx, id, next); err != nil {
+	if err := testDB.WithTx(ctx, func(q database.Querier) error {
+		return testRepo.UpdateNextExecutionTime(ctx, q, id, next)
+	}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -232,7 +302,39 @@ func TestUpdateNextExecutionTime_NotFound(t *testing.T) {
 	truncate(t)
 	ctx := context.Background()
 
-	err := testRepo.UpdateNextExecutionTime(ctx, uuid.New(), time.Now().Add(time.Hour))
+	err := testDB.WithTx(ctx, func(q database.Querier) error {
+		return testRepo.UpdateNextExecutionTime(ctx, q, uuid.New(), time.Now().Add(time.Hour))
+	})
+	if err == nil {
+		t.Fatal("expected error for missing ID, got nil")
+	}
+}
+
+func TestDisableTask(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	id := seedTask(t, "once-task", "once", true, ptr(time.Now().Add(-time.Minute)))
+
+	if err := testDB.WithTx(ctx, func(q database.Querier) error {
+		return testRepo.DisableTask(ctx, q, id)
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	task, _ := testRepo.GetByID(ctx, id)
+	if task.Enabled {
+		t.Error("expected task to be disabled, but it is still enabled")
+	}
+}
+
+func TestDisableTask_NotFound(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	err := testDB.WithTx(ctx, func(q database.Querier) error {
+		return testRepo.DisableTask(ctx, q, uuid.New())
+	})
 	if err == nil {
 		t.Fatal("expected error for missing ID, got nil")
 	}

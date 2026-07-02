@@ -3,6 +3,7 @@ package main
 import (
 	"log/slog"
 	"os"
+	"time"
 
 	"github.com/fingermustache/chronos/pkg/broker"
 	"github.com/fingermustache/chronos/pkg/database"
@@ -41,8 +42,13 @@ func main() {
 	}
 	defer pub.Close()
 
+	schedCfg := scheduling.Config{
+		PollInterval:   time.Duration(cfg.PollIntervalSeconds) * time.Second,
+		ClaimBatchSize: cfg.ClaimBatchSize,
+	}
+
 	repo := schedulerrepo.NewTaskRepository(db)
-	sched := scheduling.New(repo, pub, logger)
+	sched := scheduling.New(db, repo, pub, logger, schedCfg)
 
 	logger.Info("scheduler starting")
 	if err := sched.Run(); err != nil {
