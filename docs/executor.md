@@ -14,11 +14,15 @@ It is the only service that writes to the `execution_history` table.
 
 1. **Consume** — the executor subscribes to `task.trigger.queue` with `prefetch=1`, receiving one message at a time.
 2. **Dispatch** — the `task_type` field in the event is looked up in the runners map.
-Unknown task types are nacked immediately, routing the message to `task.dlq`.
-3. **Execute** — the matched runner is called with a `context.WithTimeout` derived from both `timeout_seconds` and the shutdown context.
-4. **Ack / Nack** — a successful run acks the message; any error nacks without requeue, routing to `task.dlq`.
+Unknown task types are nacked immediately, routing the message to `task.dlq`, without writing to `execution_history`.
+3. **Record start** — a `running` row is written to `execution_history` (`started_at` set by the DB default) before the runner is invoked.
+If this write fails, the message is nacked so the trigger isn't silently lost.
+4. **Execute** — the matched runner is called with a `context.WithTimeout` derived from both `timeout_seconds` and the shutdown context.
+5. **Record completion** — the row is updated to `success` (with `completed_at`, `duration_ms`, `output`) or `failed`/`timeout` (with `completed_at`, `duration_ms`, `error_message`, and `output` when the runner captured one).
+This write uses its own short-lived context, independent of the consumer's shutdown context, so a SIGTERM arriving mid-task doesn't prevent the outcome from being recorded.
+6. **Ack / Nack** — a successful run acks the message; any error nacks without requeue, routing to `task.dlq`.
 
-Because the timeout context is derived from the shutdown context, a SIGTERM cancels in-flight requests immediately rather than waiting out the full task timeout.
+Because the per-task timeout context (step 4) is derived from the shutdown context, a SIGTERM cancels in-flight requests immediately rather than waiting out the full task timeout — the in-flight attempt is then recorded as failed rather than left stuck at `running`.
 
 ---
 
@@ -70,7 +74,7 @@ The HTTP runner reads its configuration from `TaskTriggerEvent.TaskConfig`:
 ```
 
 Non-2xx responses are treated as failures.
-The response body (up to 64 KB) and status code are captured in `Result` and will be recorded in `execution_history` (Phase 3 — #63).
+The response body (up to 64 KB) and status code are captured in `Result`; the body is recorded as `execution_history.output` on both success and failure.
 
 ---
 
@@ -107,7 +111,11 @@ Unit tests (no external dependencies):
 cd src && go test -race ./executor/...
 ```
 
-Integration tests will be added in #63 (Execution History Recording).
+Integration tests (spins up PostgreSQL via testcontainers, exercises a full success and failure run through the executor and asserts the resulting `execution_history` row):
+
+```bash
+cd src && go test -tags integration -race ./executor/...
+```
 
 ---
 
@@ -116,12 +124,12 @@ Integration tests will be added in #63 (Execution History Recording).
 ```
 src/executor/
 ├── cmd/
-│   └── main.go                        # Entry point — wires broker, executor
+│   └── main.go                        # Entry point — wires database, broker, executor
 └── internal/
     ├── config/
-    │   └── config.go                  # Env var loading
+    │   └── config.go                  # Env var loading (database + broker)
     ├── execution/
-    │   └── executor.go                # Consumer loop and runner dispatch
+    │   └── executor.go                # Consumer loop, runner dispatch, execution_history recording
     ├── repository/
     │   ├── interface.go               # ExecutionRepository interface
     │   └── postgres.go                # Postgres implementation
