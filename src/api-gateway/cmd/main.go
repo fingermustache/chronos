@@ -30,7 +30,7 @@ func main() {
 
 	taskRepo := repository.NewTaskRepository(db)
 	taskSvc := service.NewTaskService(taskRepo)
-	executionSvc := service.NewExecutionService(taskRepo, repository.NewExecutionRepository(db))
+	executionSvc := service.NewExecutionService(taskRepo, repository.NewExecutionHistoryRepository(db))
 	srv := server.New(cfg, logger, taskSvc, executionSvc)
 
 	serverErr := make(chan error, 1)

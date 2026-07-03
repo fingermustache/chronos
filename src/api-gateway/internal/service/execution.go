@@ -4,11 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/fingermustache/chronos/api-gateway/internal/repository"
 	"github.com/fingermustache/chronos/pkg/models"
 	"github.com/google/uuid"
 )
+
+// maxOutputResponseBytes caps how much of a captured runner output the API
+// returns. The executor's HTTP runner already caps what it captures at write
+// time, but this is a defense-in-depth limit at the read/response layer too
+// (e.g. against a future runner that doesn't cap the same way).
+const maxOutputResponseBytes = 64 * 1024
 
 type ListExecutionsRequest struct {
 	Limit  int
@@ -29,10 +36,10 @@ type ExecutionService interface {
 
 type executionService struct {
 	tasks      repository.TaskRepository
-	executions repository.ExecutionRepository
+	executions repository.ExecutionHistoryRepository
 }
 
-func NewExecutionService(tasks repository.TaskRepository, executions repository.ExecutionRepository) ExecutionService {
+func NewExecutionService(tasks repository.TaskRepository, executions repository.ExecutionHistoryRepository) ExecutionService {
 	return &executionService{tasks: tasks, executions: executions}
 }
 
@@ -55,7 +62,7 @@ func (s *executionService) ListByTask(ctx context.Context, taskID uuid.UUID, req
 		if err != nil {
 			return nil, &ValidationError{Message: "invalid cursor"}
 		}
-		count, err := s.executions.CountBefore(ctx, taskID, cursorID)
+		count, err := s.executions.CountByTaskID(ctx, taskID, cursorID)
 		if err != nil {
 			if errors.Is(err, repository.ErrExecutionCursorNotFound) {
 				return nil, &ValidationError{Message: "invalid cursor"}
@@ -80,9 +87,32 @@ func (s *executionService) ListByTask(ctx context.Context, taskID uuid.UUID, req
 		nextCursor = records[len(records)-1].ID.String()
 	}
 
+	for _, record := range records {
+		truncateOutput(record)
+	}
+
 	return &ListExecutionsResponse{
 		Data:       records,
 		NextCursor: nextCursor,
 		HasMore:    hasMore,
 	}, nil
+}
+
+// truncateOutput caps record.Output at maxOutputResponseBytes, cutting on a
+// valid UTF-8 boundary so the response never contains a truncated multi-byte
+// rune.
+func truncateOutput(record *models.ExecutionHistory) {
+	if record.Output == nil || len(*record.Output) <= maxOutputResponseBytes {
+		return
+	}
+
+	b := (*record.Output)[:maxOutputResponseBytes]
+	for len(b) > 0 {
+		r, size := utf8.DecodeLastRuneInString(b)
+		if r != utf8.RuneError || size != 1 {
+			break
+		}
+		b = b[:len(b)-1]
+	}
+	record.Output = &b
 }

@@ -75,7 +75,7 @@ Each record in `data` includes:
 | `completed_at` | Attempt end time — `null` while running |
 | `duration_ms` | Wall-clock duration in milliseconds — `null` while running |
 | `error_message` | Failure detail — `null` on success |
-| `output` | Response body / stdout captured by the runner, on both success and failure |
+| `output` | Response body / stdout captured by the runner, on both success and failure — truncated to 64 KB in this response (on a valid UTF-8 boundary) as a defense-in-depth limit independent of any cap the runner itself applies when writing |
 
 ```json
 {
@@ -262,8 +262,8 @@ src/api-gateway/
     ├── repository/
     │   ├── interface.go              # TaskRepository interface
     │   ├── postgres.go               # TaskRepository Postgres implementation
-    │   ├── execution.go              # ExecutionRepository interface (read-only)
-    │   ├── execution_postgres.go     # ExecutionRepository Postgres implementation
+    │   ├── execution.go              # ExecutionHistoryRepository interface (read-only)
+    │   ├── execution_postgres.go     # ExecutionHistoryRepository Postgres implementation
     │   └── errors.go                 # Shared repository sentinel errors
     ├── service/
     │   ├── task.go            # Task validation, pagination, next_execution_time calculation

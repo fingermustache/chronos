@@ -5,6 +5,7 @@ package service_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/fingermustache/chronos/api-gateway/internal/repository"
@@ -16,16 +17,16 @@ import (
 // --- mock execution repository ---
 
 type mockExecutionRepo struct {
-	getByTaskIDFn func(ctx context.Context, taskID uuid.UUID, limit, offset int) ([]*models.ExecutionHistory, error)
-	countBeforeFn func(ctx context.Context, taskID uuid.UUID, cursorID uuid.UUID) (int, error)
+	getByTaskIDFn   func(ctx context.Context, taskID uuid.UUID, limit, offset int) ([]*models.ExecutionHistory, error)
+	countByTaskIDFn func(ctx context.Context, taskID uuid.UUID, cursorID uuid.UUID) (int, error)
 }
 
 func (m *mockExecutionRepo) GetByTaskID(ctx context.Context, taskID uuid.UUID, limit, offset int) ([]*models.ExecutionHistory, error) {
 	return m.getByTaskIDFn(ctx, taskID, limit, offset)
 }
 
-func (m *mockExecutionRepo) CountBefore(ctx context.Context, taskID uuid.UUID, cursorID uuid.UUID) (int, error) {
-	return m.countBeforeFn(ctx, taskID, cursorID)
+func (m *mockExecutionRepo) CountByTaskID(ctx context.Context, taskID uuid.UUID, cursorID uuid.UUID) (int, error) {
+	return m.countByTaskIDFn(ctx, taskID, cursorID)
 }
 
 func fakeExecution(taskID uuid.UUID) *models.ExecutionHistory {
@@ -37,7 +38,7 @@ func fakeExecution(taskID uuid.UUID) *models.ExecutionHistory {
 	}
 }
 
-func newExecutionService(tasks repository.TaskRepository, executions repository.ExecutionRepository) service.ExecutionService {
+func newExecutionService(tasks repository.TaskRepository, executions repository.ExecutionHistoryRepository) service.ExecutionService {
 	return service.NewExecutionService(tasks, executions)
 }
 
@@ -157,12 +158,12 @@ func TestListByTask_WithCursor(t *testing.T) {
 		},
 	}
 	executions := &mockExecutionRepo{
-		countBeforeFn: func(_ context.Context, gotTaskID uuid.UUID, gotCursorID uuid.UUID) (int, error) {
+		countByTaskIDFn: func(_ context.Context, gotTaskID uuid.UUID, gotCursorID uuid.UUID) (int, error) {
 			if gotTaskID != taskID {
-				t.Errorf("wrong task id passed to CountBefore")
+				t.Errorf("wrong task id passed to CountByTaskID")
 			}
 			if gotCursorID != cursorID {
-				t.Errorf("wrong cursor id passed to CountBefore")
+				t.Errorf("wrong cursor id passed to CountByTaskID")
 			}
 			return 5, nil // 5 rows before cursor -> offset=5
 		},
@@ -211,7 +212,7 @@ func TestListByTask_CursorNotFound(t *testing.T) {
 		},
 	}
 	executions := &mockExecutionRepo{
-		countBeforeFn: func(_ context.Context, _ uuid.UUID, _ uuid.UUID) (int, error) {
+		countByTaskIDFn: func(_ context.Context, _ uuid.UUID, _ uuid.UUID) (int, error) {
 			return 0, repository.ErrExecutionCursorNotFound
 		},
 	}
@@ -248,5 +249,63 @@ func TestListByTask_RepositoryError(t *testing.T) {
 	var ve *service.ValidationError
 	if errors.As(err, &ve) {
 		t.Fatal("expected a plain repository error, not a ValidationError")
+	}
+}
+
+func TestListByTask_TruncatesLargeOutput(t *testing.T) {
+	taskID := uuid.New()
+	large := strings.Repeat("a", 100_000) // well over the 64KB cap
+	tasks := &mockTaskRepo{
+		getByIDFn: func(_ context.Context, id uuid.UUID) (*models.Task, error) {
+			return fakeTask(id), nil
+		},
+	}
+	executions := &mockExecutionRepo{
+		getByTaskIDFn: func(_ context.Context, _ uuid.UUID, _, _ int) ([]*models.ExecutionHistory, error) {
+			record := fakeExecution(taskID)
+			record.Output = &large
+			return []*models.ExecutionHistory{record}, nil
+		},
+	}
+	svc := newExecutionService(tasks, executions)
+
+	resp, err := svc.ListByTask(context.Background(), taskID, service.ListExecutionsRequest{Limit: 20})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Data) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(resp.Data))
+	}
+	if resp.Data[0].Output == nil {
+		t.Fatal("expected output to still be present, just truncated")
+	}
+	if len(*resp.Data[0].Output) > 64*1024 {
+		t.Errorf("expected output truncated to at most 64KB, got %d bytes", len(*resp.Data[0].Output))
+	}
+}
+
+func TestListByTask_SmallOutputNotTruncated(t *testing.T) {
+	taskID := uuid.New()
+	small := `{"ok":true}`
+	tasks := &mockTaskRepo{
+		getByIDFn: func(_ context.Context, id uuid.UUID) (*models.Task, error) {
+			return fakeTask(id), nil
+		},
+	}
+	executions := &mockExecutionRepo{
+		getByTaskIDFn: func(_ context.Context, _ uuid.UUID, _, _ int) ([]*models.ExecutionHistory, error) {
+			record := fakeExecution(taskID)
+			record.Output = &small
+			return []*models.ExecutionHistory{record}, nil
+		},
+	}
+	svc := newExecutionService(tasks, executions)
+
+	resp, err := svc.ListByTask(context.Background(), taskID, service.ListExecutionsRequest{Limit: 20})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Data[0].Output == nil || *resp.Data[0].Output != small {
+		t.Errorf("expected output unchanged for small output, got %v", resp.Data[0].Output)
 	}
 }
