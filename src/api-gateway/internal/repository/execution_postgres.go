@@ -12,15 +12,15 @@ import (
 	"github.com/google/uuid"
 )
 
-type executionRepository struct {
+type executionHistoryRepository struct {
 	db database.Querier
 }
 
-func NewExecutionRepository(db database.Querier) ExecutionRepository {
-	return &executionRepository{db: db}
+func NewExecutionHistoryRepository(db database.Querier) ExecutionHistoryRepository {
+	return &executionHistoryRepository{db: db}
 }
 
-func (r *executionRepository) GetByTaskID(ctx context.Context, taskID uuid.UUID, limit, offset int) ([]*models.ExecutionHistory, error) {
+func (r *executionHistoryRepository) GetByTaskID(ctx context.Context, taskID uuid.UUID, limit, offset int) ([]*models.ExecutionHistory, error) {
 	query := `
 		SELECT * FROM execution_history
 		WHERE task_id = $1
@@ -36,7 +36,7 @@ func (r *executionRepository) GetByTaskID(ctx context.Context, taskID uuid.UUID,
 	return records, nil
 }
 
-func (r *executionRepository) CountBefore(ctx context.Context, taskID uuid.UUID, cursorID uuid.UUID) (int, error) {
+func (r *executionHistoryRepository) CountByTaskID(ctx context.Context, taskID uuid.UUID, cursorID uuid.UUID) (int, error) {
 	var startedAt time.Time
 	err := r.db.GetContext(ctx, &startedAt, `
 		SELECT started_at FROM execution_history

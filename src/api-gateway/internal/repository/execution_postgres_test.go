@@ -39,7 +39,7 @@ func TestExecutionRepository_GetByTaskID_OrderedNewestFirst(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	execRepo := repository.NewExecutionRepository(testDB)
+	execRepo := repository.NewExecutionHistoryRepository(testDB)
 
 	older := seedExecution(t, task.ID, models.StatusSuccess, -2*time.Minute)
 	newer := seedExecution(t, task.ID, models.StatusFailed, -1*time.Minute)
@@ -63,7 +63,7 @@ func TestExecutionRepository_GetByTaskID_EmptyForUnknownTask(t *testing.T) {
 	truncate(t)
 	ctx := context.Background()
 
-	execRepo := repository.NewExecutionRepository(testDB)
+	execRepo := repository.NewExecutionHistoryRepository(testDB)
 
 	records, err := execRepo.GetByTaskID(ctx, uuid.New(), 10, 0)
 	if err != nil {
@@ -74,7 +74,7 @@ func TestExecutionRepository_GetByTaskID_EmptyForUnknownTask(t *testing.T) {
 	}
 }
 
-func TestExecutionRepository_CountBefore_ResolvesCursor(t *testing.T) {
+func TestExecutionRepository_CountByTaskID_ResolvesCursor(t *testing.T) {
 	truncate(t)
 	ctx := context.Background()
 
@@ -83,13 +83,13 @@ func TestExecutionRepository_CountBefore_ResolvesCursor(t *testing.T) {
 		t.Fatalf("seed task: %v", err)
 	}
 
-	execRepo := repository.NewExecutionRepository(testDB)
+	execRepo := repository.NewExecutionHistoryRepository(testDB)
 
 	seedExecution(t, task.ID, models.StatusSuccess, -3*time.Minute) // oldest
 	cursor := seedExecution(t, task.ID, models.StatusSuccess, -2*time.Minute)
 	seedExecution(t, task.ID, models.StatusSuccess, -1*time.Minute) // newest
 
-	count, err := execRepo.CountBefore(ctx, task.ID, cursor)
+	count, err := execRepo.CountByTaskID(ctx, task.ID, cursor)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestExecutionRepository_CountBefore_ResolvesCursor(t *testing.T) {
 	}
 }
 
-func TestExecutionRepository_CountBefore_InvalidCursorReturnsNotFound(t *testing.T) {
+func TestExecutionRepository_CountByTaskID_InvalidCursorReturnsNotFound(t *testing.T) {
 	truncate(t)
 	ctx := context.Background()
 
@@ -109,15 +109,15 @@ func TestExecutionRepository_CountBefore_InvalidCursorReturnsNotFound(t *testing
 		t.Fatalf("seed task: %v", err)
 	}
 
-	execRepo := repository.NewExecutionRepository(testDB)
+	execRepo := repository.NewExecutionHistoryRepository(testDB)
 
-	_, err = execRepo.CountBefore(ctx, task.ID, uuid.New())
+	_, err = execRepo.CountByTaskID(ctx, task.ID, uuid.New())
 	if err != repository.ErrExecutionCursorNotFound {
 		t.Errorf("expected ErrExecutionCursorNotFound, got %v", err)
 	}
 }
 
-func TestExecutionRepository_CountBefore_CursorFromOtherTaskReturnsNotFound(t *testing.T) {
+func TestExecutionRepository_CountByTaskID_CursorFromOtherTaskReturnsNotFound(t *testing.T) {
 	truncate(t)
 	ctx := context.Background()
 
@@ -130,11 +130,11 @@ func TestExecutionRepository_CountBefore_CursorFromOtherTaskReturnsNotFound(t *t
 		t.Fatalf("seed task B: %v", err)
 	}
 
-	execRepo := repository.NewExecutionRepository(testDB)
+	execRepo := repository.NewExecutionHistoryRepository(testDB)
 
 	cursorFromB := seedExecution(t, taskB.ID, models.StatusSuccess, -1*time.Minute)
 
-	_, err = execRepo.CountBefore(ctx, taskA.ID, cursorFromB)
+	_, err = execRepo.CountByTaskID(ctx, taskA.ID, cursorFromB)
 	if err != repository.ErrExecutionCursorNotFound {
 		t.Errorf("expected ErrExecutionCursorNotFound for a cursor scoped to a different task, got %v", err)
 	}

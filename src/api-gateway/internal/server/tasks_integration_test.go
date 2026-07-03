@@ -41,7 +41,7 @@ func newE2EServerWithDB(t *testing.T) (*httptest.Server, *database.DB, func()) {
 
 	repo := repository.NewTaskRepository(db)
 	svc := service.NewTaskService(repo)
-	executionSvc := service.NewExecutionService(repo, repository.NewExecutionRepository(db))
+	executionSvc := service.NewExecutionService(repo, repository.NewExecutionHistoryRepository(db))
 
 	cfg := config.Config{Port: "0", RateLimitRPM: 1000}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
