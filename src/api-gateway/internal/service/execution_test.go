@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/fingermustache/chronos/api-gateway/internal/repository"
 	"github.com/fingermustache/chronos/api-gateway/internal/service"
@@ -307,5 +308,48 @@ func TestListByTask_SmallOutputNotTruncated(t *testing.T) {
 	}
 	if resp.Data[0].Output == nil || *resp.Data[0].Output != small {
 		t.Errorf("expected output unchanged for small output, got %v", resp.Data[0].Output)
+	}
+}
+
+func TestListByTask_TruncationCutsOnValidUTF8Boundary(t *testing.T) {
+	taskID := uuid.New()
+
+	// Place a multi-byte rune straddling the exact 64KB cut point: 65535
+	// ASCII bytes, then a 2-byte rune (bytes 65535-65536), then more content.
+	// A naive byte-slice truncation at 65536 would split "é" in half and
+	// leave an invalid UTF-8 tail.
+	prefix := strings.Repeat("a", 64*1024-1)
+	withSplitRune := prefix + "é" + strings.Repeat("b", 1000)
+
+	tasks := &mockTaskRepo{
+		getByIDFn: func(_ context.Context, id uuid.UUID) (*models.Task, error) {
+			return fakeTask(id), nil
+		},
+	}
+	executions := &mockExecutionRepo{
+		getByTaskIDFn: func(_ context.Context, _ uuid.UUID, _, _ int) ([]*models.ExecutionHistory, error) {
+			record := fakeExecution(taskID)
+			record.Output = &withSplitRune
+			return []*models.ExecutionHistory{record}, nil
+		},
+	}
+	svc := newExecutionService(tasks, executions)
+
+	resp, err := svc.ListByTask(context.Background(), taskID, service.ListExecutionsRequest{Limit: 20})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Data[0].Output == nil {
+		t.Fatal("expected output to still be present, just truncated")
+	}
+	got := *resp.Data[0].Output
+	if len(got) > 64*1024 {
+		t.Errorf("expected output truncated to at most 64KB, got %d bytes", len(got))
+	}
+	if !utf8.ValidString(got) {
+		t.Errorf("truncated output is not valid UTF-8: %q", got)
+	}
+	if got != prefix {
+		t.Errorf("expected the split rune to be dropped entirely, leaving just the ASCII prefix (%d bytes), got %d bytes", len(prefix), len(got))
 	}
 }
