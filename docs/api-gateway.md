@@ -8,7 +8,7 @@ appropriate internal handlers.
 
 **Framework:** [Chi v5](https://github.com/go-chi/chi)  
 **Default port:** `8080` (configurable via `PORT` environment variable)  
-**Service boundary:** Full read/write access to the `tasks` table — see [Architecture](architecture.md)
+**Service boundary:** Full read/write access to the `tasks` table; read-only access to `execution_history` — see [Architecture](architecture.md)
 
 ---
 
@@ -50,6 +50,54 @@ All protected routes require `Authorization: Bearer <token>`.
 | `GET` | `/tasks/{id}` | `handler.GetByID` | Get a single task by UUID |
 | `PUT` | `/tasks/{id}` | `handler.Update` | Update one or more fields on an existing task |
 | `DELETE` | `/tasks/{id}` | `handler.Delete` | Soft-delete a task |
+| `GET` | `/tasks/{id}/executions` | `handler.ExecutionHandler.List` | List a task's execution history, newest first, with cursor-based pagination (`limit`, `cursor`) |
+
+---
+
+## Execution History
+
+`GET /tasks/{id}/executions` returns the audit trail of past runs for a task, read from `execution_history`.
+The API gateway only reads this table — the executor is the only service that writes to it (see [Executor](executor.md)).
+
+Returns `404` if `{id}` does not exist or is soft-deleted (same existence check as `GET /tasks/{id}`).
+Pagination follows the same cursor pattern as `GET /tasks`: `limit` (default `20`, max `100`) and `cursor` (the `id` of the last record seen on the previous page), with `next_cursor`/`has_more` in the response envelope.
+An empty history returns `200` with an empty `data` array, not a `404`.
+
+Each record in `data` includes:
+
+| Field | Description |
+|---|---|
+| `id` | Execution attempt UUID |
+| `task_id` | The task this attempt belongs to |
+| `status` | `pending`, `running`, `success`, `failed`, or `timeout` |
+| `retry_count` | Attempt number — `0` is the first attempt, not a retry |
+| `started_at` | Attempt start time |
+| `completed_at` | Attempt end time — `null` while running |
+| `duration_ms` | Wall-clock duration in milliseconds — `null` while running |
+| `error_message` | Failure detail — `null` on success |
+| `output` | Response body / stdout captured by the runner, on both success and failure |
+
+```json
+{
+  "data": {
+    "data": [
+      {
+        "id": "b3d8f6b0-...",
+        "task_id": "a1c2e4d6-...",
+        "status": "success",
+        "retry_count": 0,
+        "started_at": "2026-07-03T09:00:00Z",
+        "completed_at": "2026-07-03T09:00:02Z",
+        "duration_ms": 2000,
+        "error_message": null,
+        "output": "{\"ok\":true}"
+      }
+    ],
+    "next_cursor": "b3d8f6b0-...",
+    "has_more": false
+  }
+}
+```
 
 ---
 
@@ -195,13 +243,14 @@ Client request
 ```
 src/api-gateway/
 ├── cmd/
-│   └── main.go               # Entry point — wires config, server, shutdown
+│   └── main.go               # Entry point — wires config, repositories, services, server, shutdown
 └── internal/
     ├── config/
     │   └── config.go         # Env var loading with typed defaults
     ├── handler/
     │   ├── health.go         # GET /health handler
-    │   └── task.go           # Task CRUD handlers (create, list, get, update, delete)
+    │   ├── task.go           # Task CRUD handlers (create, list, get, update, delete)
+    │   └── execution.go      # GET /tasks/{id}/executions handler
     ├── middleware/
     │   ├── auth.go           # Bearer token validation (Phase 1 stub)
     │   ├── cors.go           # Cross-origin headers + preflight handling
@@ -210,6 +259,15 @@ src/api-gateway/
     │   ├── recovery.go       # Panic recovery
     │   ├── tracing.go        # Request ID generation and context threading
     │   └── validation.go     # Content-Type enforcement
+    ├── repository/
+    │   ├── interface.go              # TaskRepository interface
+    │   ├── postgres.go               # TaskRepository Postgres implementation
+    │   ├── execution.go              # ExecutionRepository interface (read-only)
+    │   ├── execution_postgres.go     # ExecutionRepository Postgres implementation
+    │   └── errors.go                 # Shared repository sentinel errors
+    ├── service/
+    │   ├── task.go            # Task validation, pagination, next_execution_time calculation
+    │   └── execution.go       # Execution history pagination + task existence check
     └── server/
         └── server.go         # Router wiring, middleware chain, HTTP server config
 ```

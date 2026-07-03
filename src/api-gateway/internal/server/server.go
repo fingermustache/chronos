@@ -15,7 +15,7 @@ import (
 
 // New wires up the router, middleware stack, and routes, then returns
 // a configured http.Server ready to be started by main.
-func New(cfg config.Config, logger *slog.Logger, taskSvc service.TaskService) *http.Server {
+func New(cfg config.Config, logger *slog.Logger, taskSvc service.TaskService, executionSvc service.ExecutionService) *http.Server {
 	r := chi.NewRouter()
 
 	rateLimiter := middleware.NewRateLimiter(cfg.RateLimitRPM)
@@ -38,6 +38,10 @@ func New(cfg config.Config, logger *slog.Logger, taskSvc service.TaskService) *h
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(logger))
 
+		unavailable := func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+		}
+
 		if taskSvc != nil {
 			tasks := handler.NewTaskHandler(taskSvc, logger)
 			r.Post("/tasks", tasks.Create)
@@ -46,14 +50,18 @@ func New(cfg config.Config, logger *slog.Logger, taskSvc service.TaskService) *h
 			r.Put("/tasks/{id}", tasks.Update)
 			r.Delete("/tasks/{id}", tasks.Delete)
 		} else {
-			unavailable := func(w http.ResponseWriter, r *http.Request) {
-				http.Error(w, "service unavailable", http.StatusServiceUnavailable)
-			}
 			r.Get("/tasks", unavailable)
 			r.Get("/tasks/{id}", unavailable)
 			r.Post("/tasks", unavailable)
 			r.Put("/tasks/{id}", unavailable)
 			r.Delete("/tasks/{id}", unavailable)
+		}
+
+		if executionSvc != nil {
+			executions := handler.NewExecutionHandler(executionSvc, logger)
+			r.Get("/tasks/{id}/executions", executions.List)
+		} else {
+			r.Get("/tasks/{id}/executions", unavailable)
 		}
 	})
 

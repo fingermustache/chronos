@@ -13,6 +13,7 @@ import (
 
 	"github.com/fingermustache/chronos/api-gateway/internal/config"
 	"github.com/fingermustache/chronos/api-gateway/internal/server"
+	"github.com/google/uuid"
 )
 
 // newTestServer spins up the full middleware stack on an in-process test server.
@@ -26,7 +27,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	srv := server.New(cfg, logger, nil)
+	srv := server.New(cfg, logger, nil, nil)
 	return httptest.NewServer(srv.Handler)
 }
 
@@ -137,6 +138,26 @@ func TestIntegration_TaskRoutesReturn503WhenServiceNil(t *testing.T) {
 	}
 }
 
+func TestIntegration_ExecutionRoutesReturn503WhenServiceNil(t *testing.T) {
+	ts := newTestServer(t) // passes nil execution service
+	defer ts.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/tasks/"+uuid.New().String()+"/executions", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode == http.StatusInternalServerError {
+		t.Errorf("nil execution service caused a panic (recovery returned 500); expected a clean 503")
+	}
+	if res.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("got %d, want 503", res.StatusCode)
+	}
+}
+
 func TestIntegration_AuthRequiredForProtectedRoutes(t *testing.T) {
 	ts := newTestServer(t)
 	defer ts.Close()
@@ -163,7 +184,7 @@ func TestIntegration_RateLimiterBlocksAfterLimit(t *testing.T) {
 		RateLimitRPM: 3,
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	ts := httptest.NewServer(server.New(cfg, logger, nil).Handler)
+	ts := httptest.NewServer(server.New(cfg, logger, nil, nil).Handler)
 	defer ts.Close()
 
 	// First 3 requests should pass
