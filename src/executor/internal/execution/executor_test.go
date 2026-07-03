@@ -80,9 +80,56 @@ func triggerEvent(taskType string) broker.TaskTriggerEvent {
 
 func newTestExecutor(taskType string, runner runners.TaskRunner, repo repository.ExecutionRepository) *execution.Executor {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	return execution.NewWithRunners(nil, repo, logger, map[string]runners.TaskRunner{
+	exec := execution.NewWithRunners(nil, repo, logger, map[string]runners.TaskRunner{
 		taskType: runner,
 	})
+	// Tests don't want to wait out real backoff delays unless they opt in.
+	execution.SetSleep(exec, func(context.Context, time.Duration) {})
+	return exec
+}
+
+// sequenceRunner returns one entry from results per call, in order, and
+// panics if called more times than there are results — used to script
+// multi-attempt retry scenarios.
+type sequenceRunner struct {
+	results []struct {
+		result runners.Result
+		err    error
+	}
+	calls int
+}
+
+func (s *sequenceRunner) Run(_ context.Context, _ map[string]any) (runners.Result, error) {
+	r := s.results[s.calls]
+	s.calls++
+	return r.result, r.err
+}
+
+func newSequenceRunner(entries ...struct {
+	result runners.Result
+	err    error
+}) *sequenceRunner {
+	return &sequenceRunner{results: entries}
+}
+
+func ok(output string) struct {
+	result runners.Result
+	err    error
+} {
+	return struct {
+		result runners.Result
+		err    error
+	}{result: runners.Result{StatusCode: 200, Output: output}}
+}
+
+func fail(msg string) struct {
+	result runners.Result
+	err    error
+} {
+	return struct {
+		result runners.Result
+		err    error
+	}{err: errors.New(msg)}
 }
 
 func TestHandle_UnsupportedTaskType(t *testing.T) {
@@ -158,7 +205,9 @@ func TestHandle_HTTPTask_Failure(t *testing.T) {
 		},
 	}, repo)
 
-	if err := execution.Handle(exec, triggerEvent("http")); err == nil {
+	evt := triggerEvent("http")
+	evt.MaxRetries = 0
+	if err := execution.Handle(exec, evt); err == nil {
 		t.Fatal("expected error on runner failure, got nil")
 	}
 
@@ -191,7 +240,9 @@ func TestHandle_Timeout_RecordsStatusTimeout(t *testing.T) {
 		},
 	}, repo)
 
-	if err := execution.Handle(exec, triggerEvent("http")); err == nil {
+	evt := triggerEvent("http")
+	evt.MaxRetries = 0
+	if err := execution.Handle(exec, evt); err == nil {
 		t.Fatal("expected error on timeout, got nil")
 	}
 
@@ -290,5 +341,247 @@ func TestHandle_UpdateStatusFails_StillAcksSuccessfulRun(t *testing.T) {
 
 	if err := execution.Handle(exec, triggerEvent("http")); err != nil {
 		t.Fatalf("expected success to still ack even if the status update fails, got: %v", err)
+	}
+}
+
+// --- retry loop ---
+
+func TestHandle_Retry_SucceedsOnFirstAttempt_NoRetries(t *testing.T) {
+	repo := &mockRepo{}
+	var sleeps []time.Duration
+	exec := newTestExecutor("http", newSequenceRunner(ok(`{"ok":true}`)), repo)
+	execution.SetSleep(exec, func(_ context.Context, d time.Duration) { sleeps = append(sleeps, d) })
+
+	evt := triggerEvent("http")
+	evt.MaxRetries = 3
+	if err := execution.Handle(exec, evt); err != nil {
+		t.Fatalf("expected success, got: %v", err)
+	}
+
+	if len(repo.creates) != 1 {
+		t.Fatalf("expected 1 create call, got %d", len(repo.creates))
+	}
+	if repo.creates[0].RetryCount != 0 {
+		t.Errorf("expected retry_count 0 on the first attempt, got %d", repo.creates[0].RetryCount)
+	}
+	if len(repo.updates) != 1 || repo.updates[0].Status != models.StatusSuccess {
+		t.Fatalf("expected 1 successful update, got %+v", repo.updates)
+	}
+	if len(sleeps) != 0 {
+		t.Errorf("expected no backoff sleep when the first attempt succeeds, got %v", sleeps)
+	}
+}
+
+func TestHandle_Retry_SucceedsOnRetry2(t *testing.T) {
+	repo := &mockRepo{}
+	var sleeps []time.Duration
+	exec := newTestExecutor("http", newSequenceRunner(
+		fail("boom 1"),
+		fail("boom 2"),
+		ok(`{"ok":true}`),
+	), repo)
+	execution.SetSleep(exec, func(_ context.Context, d time.Duration) { sleeps = append(sleeps, d) })
+
+	evt := triggerEvent("http")
+	evt.MaxRetries = 3
+	if err := execution.Handle(exec, evt); err != nil {
+		t.Fatalf("expected eventual success, got: %v", err)
+	}
+
+	if len(repo.creates) != 3 {
+		t.Fatalf("expected 3 create calls (2 failed attempts + 1 success), got %d", len(repo.creates))
+	}
+	for i, c := range repo.creates {
+		if c.RetryCount != i {
+			t.Errorf("create[%d]: expected retry_count %d, got %d", i, i, c.RetryCount)
+		}
+	}
+
+	if len(repo.updates) != 3 {
+		t.Fatalf("expected 3 update calls, got %d", len(repo.updates))
+	}
+	if repo.updates[0].Status != models.StatusFailed || repo.updates[1].Status != models.StatusFailed {
+		t.Errorf("expected the first two attempts to be recorded as failed, got %+v", repo.updates)
+	}
+	if repo.updates[2].Status != models.StatusSuccess {
+		t.Errorf("expected the final attempt to be recorded as success, got %q", repo.updates[2].Status)
+	}
+
+	wantSleeps := []time.Duration{1 * time.Second, 2 * time.Second}
+	if len(sleeps) != len(wantSleeps) {
+		t.Fatalf("expected backoff sleeps %v, got %v", wantSleeps, sleeps)
+	}
+	for i, want := range wantSleeps {
+		if sleeps[i] != want {
+			t.Errorf("sleep[%d]: expected %v, got %v", i, want, sleeps[i])
+		}
+	}
+}
+
+func TestHandle_Retry_ExhaustsAfterMaxRetries(t *testing.T) {
+	repo := &mockRepo{}
+	var sleeps []time.Duration
+	exec := newTestExecutor("http", newSequenceRunner(
+		fail("boom 1"),
+		fail("boom 2"),
+		fail("boom 3"),
+	), repo)
+	execution.SetSleep(exec, func(_ context.Context, d time.Duration) { sleeps = append(sleeps, d) })
+
+	evt := triggerEvent("http")
+	evt.MaxRetries = 2
+	err := execution.Handle(exec, evt)
+	if err == nil {
+		t.Fatal("expected error after exhausting all retries, got nil")
+	}
+	if err.Error() != "boom 3" {
+		t.Errorf("expected the last attempt's error to be returned, got %q", err.Error())
+	}
+
+	if len(repo.creates) != 3 {
+		t.Fatalf("expected 3 attempts (1 initial + 2 retries), got %d", len(repo.creates))
+	}
+	for _, u := range repo.updates {
+		if u.Status != models.StatusFailed {
+			t.Errorf("expected every attempt to be recorded as failed, got %q", u.Status)
+		}
+	}
+
+	wantSleeps := []time.Duration{1 * time.Second, 2 * time.Second}
+	if len(sleeps) != len(wantSleeps) {
+		t.Fatalf("expected backoff sleeps %v, got %v", wantSleeps, sleeps)
+	}
+}
+
+func TestHandle_Retry_TimeoutCountsAsFailureAndConsumesRetrySlot(t *testing.T) {
+	repo := &mockRepo{}
+	exec := newTestExecutor("http", newSequenceRunner(
+		struct {
+			result runners.Result
+			err    error
+		}{err: fmt.Errorf("http runner: execute request: %w", context.DeadlineExceeded)},
+		ok(`{"ok":true}`),
+	), repo)
+
+	evt := triggerEvent("http")
+	evt.MaxRetries = 1
+	if err := execution.Handle(exec, evt); err != nil {
+		t.Fatalf("expected success on the retry after a timeout, got: %v", err)
+	}
+
+	if len(repo.updates) != 2 {
+		t.Fatalf("expected 2 update calls, got %d", len(repo.updates))
+	}
+	if repo.updates[0].Status != models.StatusTimeout {
+		t.Errorf("expected the first attempt to be recorded as timeout, got %q", repo.updates[0].Status)
+	}
+	if repo.updates[1].Status != models.StatusSuccess {
+		t.Errorf("expected the retry to be recorded as success, got %q", repo.updates[1].Status)
+	}
+}
+
+func TestHandle_Retry_MaxRetriesZero_OneAttemptOnly(t *testing.T) {
+	repo := &mockRepo{}
+	var sleeps []time.Duration
+	exec := newTestExecutor("http", newSequenceRunner(fail("boom")), repo)
+	execution.SetSleep(exec, func(_ context.Context, d time.Duration) { sleeps = append(sleeps, d) })
+
+	evt := triggerEvent("http")
+	evt.MaxRetries = 0
+	if err := execution.Handle(exec, evt); err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if len(repo.creates) != 1 {
+		t.Fatalf("expected exactly 1 attempt when max_retries=0, got %d", len(repo.creates))
+	}
+	if len(sleeps) != 0 {
+		t.Errorf("expected no backoff sleep with max_retries=0, got %v", sleeps)
+	}
+}
+
+func TestHandle_Retry_CreateFailsOnRetryPath_ContinuesWithoutNacking(t *testing.T) {
+	repo := &mockRepo{
+		createFn: func(_ context.Context, params repository.CreateExecutionParams) (*models.ExecutionHistory, error) {
+			if params.RetryCount == 1 {
+				return nil, errors.New("db unavailable")
+			}
+			return &models.ExecutionHistory{ID: uuid.New(), TaskID: params.TaskID, Status: params.Status}, nil
+		},
+	}
+	runnerInvocations := 0
+	exec := newTestExecutor("http", &mockRunner{
+		runFn: func(_ context.Context, _ map[string]any) (runners.Result, error) {
+			runnerInvocations++
+			if runnerInvocations == 1 {
+				return runners.Result{}, errors.New("first attempt fails")
+			}
+			return runners.Result{StatusCode: 200, Output: "ok"}, nil
+		},
+	}, repo)
+
+	evt := triggerEvent("http")
+	evt.MaxRetries = 2
+	// Attempt 0: Create succeeds, runner fails -> recorded as failed.
+	// Attempt 1 (retry_count=1): Create fails (simulated DB hiccup) but the
+	// runner still runs (best-effort history on retry paths) and succeeds,
+	// so the message is still acked even though that attempt goes unrecorded.
+	if err := execution.Handle(exec, evt); err != nil {
+		t.Fatalf("expected eventual success despite the retry's history write failing, got: %v", err)
+	}
+
+	if runnerInvocations != 2 {
+		t.Fatalf("expected the runner to still be invoked on the retry despite the failed history write, got %d invocations", runnerInvocations)
+	}
+	if len(repo.creates) != 2 {
+		t.Fatalf("expected 2 create attempts (retry_count 0 and 1), got %d", len(repo.creates))
+	}
+	if len(repo.updates) != 1 || repo.updates[0].Status != models.StatusFailed {
+		t.Fatalf("expected only the first (failed) attempt to have a completion record — the successful retry's history write was skipped since Create failed for it, got %+v", repo.updates)
+	}
+}
+
+func TestHandle_Retry_ClampsExcessiveMaxRetries(t *testing.T) {
+	repo := &mockRepo{}
+	exec := newTestExecutor("http", &mockRunner{
+		runFn: func(_ context.Context, _ map[string]any) (runners.Result, error) {
+			return runners.Result{}, errors.New("always fails")
+		},
+	}, repo)
+
+	evt := triggerEvent("http")
+	evt.MaxRetries = 10_000 // far beyond the API-validated ceiling of 10
+
+	if err := execution.Handle(exec, evt); err == nil {
+		t.Fatal("expected error after exhausting the clamped retry ceiling, got nil")
+	}
+
+	const wantAttempts = 11 // maxAllowedRetries(10) + 1
+	if len(repo.creates) != wantAttempts {
+		t.Fatalf("expected max_retries to be clamped to a bounded number of attempts (%d), got %d", wantAttempts, len(repo.creates))
+	}
+}
+
+func TestHandle_Retry_BackoffRespectsShutdownCancellation(t *testing.T) {
+	repo := &mockRepo{}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	exec := execution.NewWithRunners(nil, repo, logger, map[string]runners.TaskRunner{
+		"http": newSequenceRunner(fail("boom 1"), fail("boom 2")),
+	})
+	// Deliberately not overriding sleep here — this exercises the real,
+	// context-aware default backoff implementation.
+
+	shutdownCtx, cancel := context.WithCancel(context.Background())
+	cancel() // shutdown is already in progress before the first backoff wait
+
+	evt := triggerEvent("http")
+	evt.MaxRetries = 1
+
+	start := time.Now()
+	execution.HandleWithContext(exec, shutdownCtx, evt)
+	elapsed := time.Since(start)
+
+	if elapsed > 200*time.Millisecond {
+		t.Errorf("expected the 1s backoff to be cut short by an already-cancelled shutdown context, took %v", elapsed)
 	}
 }
