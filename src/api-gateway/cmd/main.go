@@ -28,8 +28,9 @@ func main() {
 	}
 	defer db.Close()
 
-	taskSvc := service.NewTaskService(repository.NewTaskRepository(db))
-	executionSvc := service.NewExecutionService(repository.NewTaskRepository(db), repository.NewExecutionRepository(db))
+	taskRepo := repository.NewTaskRepository(db)
+	taskSvc := service.NewTaskService(taskRepo)
+	executionSvc := service.NewExecutionService(taskRepo, repository.NewExecutionRepository(db))
 	srv := server.New(cfg, logger, taskSvc, executionSvc)
 
 	serverErr := make(chan error, 1)
