@@ -19,6 +19,6 @@ func HandleWithContext(e *Executor, shutdownCtx context.Context, evt broker.Task
 
 // SetSleep overrides the executor's backoff sleep function, letting tests
 // skip real delays or record the durations it was called with.
-func SetSleep(e *Executor, fn func(time.Duration)) {
+func SetSleep(e *Executor, fn func(context.Context, time.Duration)) {
 	e.sleep = fn
 }

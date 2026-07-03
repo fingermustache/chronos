@@ -41,6 +41,9 @@ where `attempt` is the zero-indexed attempt that just failed (so `1s`, `2s`, `4s
 `max_retries = 0` means a single attempt with no retries.
 Each attempt gets its own `execution_history` row with the correct `retry_count`; a success on any attempt records `success` and stops, and exhausting all retries leaves the final row `failed` (or `timeout`) and nacks the message to the DLQ.
 
+The executor caps the number of retries it will actually perform at 10, regardless of what a trigger event claims — the database only enforces `max_retries >= 0`, so this is a defense-in-depth backstop (the API layer separately validates `0–10` on writes) against an out-of-range value stalling the single-message consumer for an unbounded number of attempts.
+A cancelled shutdown context (SIGTERM/SIGINT) cuts a backoff wait short instead of blocking the full delay.
+
 ---
 
 ## Runner dispatch

@@ -28,6 +28,15 @@ const (
 	backoffCap  = 30 * time.Second
 )
 
+// maxAllowedRetries caps the number of retries the executor will actually
+// perform, regardless of what a trigger event claims. It mirrors the
+// api-gateway's validated max_retries ceiling (see
+// api-gateway/internal/service/task.go); the database only enforces
+// max_retries >= 0, so this is a defense-in-depth backstop against an
+// out-of-range value reaching the executor and stalling the single-message
+// consumer for an unbounded number of attempts.
+const maxAllowedRetries = 10
+
 // Executor consumes TaskTriggerEvents from the broker and dispatches them to
 // task-type runners.
 type Executor struct {
@@ -35,7 +44,7 @@ type Executor struct {
 	repo     repository.ExecutionRepository
 	runners  map[string]runners.TaskRunner
 	logger   *slog.Logger
-	sleep    func(time.Duration)
+	sleep    func(context.Context, time.Duration)
 }
 
 func New(consumer broker.Consumer, repo repository.ExecutionRepository, logger *slog.Logger) *Executor {
@@ -49,7 +58,18 @@ func defaultRunners() map[string]runners.TaskRunner {
 }
 
 func newWithRunners(consumer broker.Consumer, repo repository.ExecutionRepository, logger *slog.Logger, r map[string]runners.TaskRunner) *Executor {
-	return &Executor{consumer: consumer, repo: repo, runners: r, logger: logger, sleep: time.Sleep}
+	return &Executor{consumer: consumer, repo: repo, runners: r, logger: logger, sleep: sleepUnlessDone}
+}
+
+// sleepUnlessDone waits for d, but returns early if ctx is done first — so a
+// SIGTERM during shutdown doesn't have to wait out a long backoff delay.
+func sleepUnlessDone(ctx context.Context, d time.Duration) {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-ctx.Done():
+	}
 }
 
 // Run starts the consumer loop and blocks until SIGTERM or SIGINT, then waits
@@ -95,13 +115,23 @@ func (e *Executor) handle(shutdownCtx context.Context, evt broker.TaskTriggerEve
 		return fmt.Errorf("%w: %s", runners.ErrUnsupportedTaskType, evt.TaskType)
 	}
 
+	maxRetries := evt.MaxRetries
+	if maxRetries > maxAllowedRetries {
+		e.logger.Warn("max_retries exceeds the allowed ceiling — clamping",
+			"task_id", evt.TaskID,
+			"max_retries", evt.MaxRetries,
+			"clamped_to", maxAllowedRetries,
+		)
+		maxRetries = maxAllowedRetries
+	}
+
 	var lastErr error
-	for attempt := 0; attempt <= evt.MaxRetries; attempt++ {
+	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
-			e.sleep(backoffDelay(attempt - 1))
+			e.sleep(shutdownCtx, backoffDelay(attempt-1))
 		}
 
-		runErr, hardNack := e.attemptOnce(shutdownCtx, evt, runner, attempt)
+		hardNack, runErr := e.attemptOnce(shutdownCtx, evt, runner, attempt)
 		if runErr == nil {
 			return nil
 		}
@@ -116,7 +146,7 @@ func (e *Executor) handle(shutdownCtx context.Context, evt broker.TaskTriggerEve
 	e.logger.Error("task failed after exhausting all retries — nacking to DLQ",
 		"task_id", evt.TaskID,
 		"task_type", evt.TaskType,
-		"max_retries", evt.MaxRetries,
+		"max_retries", maxRetries,
 		"error", lastErr,
 	)
 	return lastErr
@@ -128,7 +158,7 @@ func (e *Executor) handle(shutdownCtx context.Context, evt broker.TaskTriggerEve
 // attempt still runs, since history is best-effort there), executes the
 // runner, and records the terminal status. The returned bool is true only
 // when the caller should nack immediately rather than continue retrying.
-func (e *Executor) attemptOnce(shutdownCtx context.Context, evt broker.TaskTriggerEvent, runner runners.TaskRunner, attempt int) (error, bool) {
+func (e *Executor) attemptOnce(shutdownCtx context.Context, evt broker.TaskTriggerEvent, runner runners.TaskRunner, attempt int) (bool, error) {
 	createCtx, cancelCreate := e.independentCtx()
 	record, err := e.repo.Create(createCtx, repository.CreateExecutionParams{
 		TaskID:     evt.TaskID,
@@ -142,7 +172,7 @@ func (e *Executor) attemptOnce(shutdownCtx context.Context, evt broker.TaskTrigg
 				"task_id", evt.TaskID,
 				"error", err,
 			)
-			return fmt.Errorf("record execution start: %w", err), true
+			return true, fmt.Errorf("record execution start: %w", err)
 		}
 		e.logger.Error("failed to record retry attempt start — continuing without a history row",
 			"task_id", evt.TaskID,
@@ -188,7 +218,7 @@ func (e *Executor) attemptOnce(shutdownCtx context.Context, evt broker.TaskTrigg
 			"max_retries", evt.MaxRetries,
 			"error", runErr,
 		)
-		return runErr, false
+		return false, runErr
 	}
 
 	e.logger.Info("task executed successfully",
@@ -197,7 +227,7 @@ func (e *Executor) attemptOnce(shutdownCtx context.Context, evt broker.TaskTrigg
 		"attempt", attempt,
 		"status_code", result.StatusCode,
 	)
-	return nil, false
+	return false, nil
 }
 
 // recordCompletion writes the terminal status for an execution attempt and

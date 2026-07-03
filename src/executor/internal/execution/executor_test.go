@@ -84,7 +84,7 @@ func newTestExecutor(taskType string, runner runners.TaskRunner, repo repository
 		taskType: runner,
 	})
 	// Tests don't want to wait out real backoff delays unless they opt in.
-	execution.SetSleep(exec, func(time.Duration) {})
+	execution.SetSleep(exec, func(context.Context, time.Duration) {})
 	return exec
 }
 
@@ -350,7 +350,7 @@ func TestHandle_Retry_SucceedsOnFirstAttempt_NoRetries(t *testing.T) {
 	repo := &mockRepo{}
 	var sleeps []time.Duration
 	exec := newTestExecutor("http", newSequenceRunner(ok(`{"ok":true}`)), repo)
-	execution.SetSleep(exec, func(d time.Duration) { sleeps = append(sleeps, d) })
+	execution.SetSleep(exec, func(_ context.Context, d time.Duration) { sleeps = append(sleeps, d) })
 
 	evt := triggerEvent("http")
 	evt.MaxRetries = 3
@@ -380,7 +380,7 @@ func TestHandle_Retry_SucceedsOnRetry2(t *testing.T) {
 		fail("boom 2"),
 		ok(`{"ok":true}`),
 	), repo)
-	execution.SetSleep(exec, func(d time.Duration) { sleeps = append(sleeps, d) })
+	execution.SetSleep(exec, func(_ context.Context, d time.Duration) { sleeps = append(sleeps, d) })
 
 	evt := triggerEvent("http")
 	evt.MaxRetries = 3
@@ -426,7 +426,7 @@ func TestHandle_Retry_ExhaustsAfterMaxRetries(t *testing.T) {
 		fail("boom 2"),
 		fail("boom 3"),
 	), repo)
-	execution.SetSleep(exec, func(d time.Duration) { sleeps = append(sleeps, d) })
+	execution.SetSleep(exec, func(_ context.Context, d time.Duration) { sleeps = append(sleeps, d) })
 
 	evt := triggerEvent("http")
 	evt.MaxRetries = 2
@@ -484,7 +484,7 @@ func TestHandle_Retry_MaxRetriesZero_OneAttemptOnly(t *testing.T) {
 	repo := &mockRepo{}
 	var sleeps []time.Duration
 	exec := newTestExecutor("http", newSequenceRunner(fail("boom")), repo)
-	execution.SetSleep(exec, func(d time.Duration) { sleeps = append(sleeps, d) })
+	execution.SetSleep(exec, func(_ context.Context, d time.Duration) { sleeps = append(sleeps, d) })
 
 	evt := triggerEvent("http")
 	evt.MaxRetries = 0
@@ -538,5 +538,50 @@ func TestHandle_Retry_CreateFailsOnRetryPath_ContinuesWithoutNacking(t *testing.
 	}
 	if len(repo.updates) != 1 || repo.updates[0].Status != models.StatusFailed {
 		t.Fatalf("expected only the first (failed) attempt to have a completion record — the successful retry's history write was skipped since Create failed for it, got %+v", repo.updates)
+	}
+}
+
+func TestHandle_Retry_ClampsExcessiveMaxRetries(t *testing.T) {
+	repo := &mockRepo{}
+	exec := newTestExecutor("http", &mockRunner{
+		runFn: func(_ context.Context, _ map[string]any) (runners.Result, error) {
+			return runners.Result{}, errors.New("always fails")
+		},
+	}, repo)
+
+	evt := triggerEvent("http")
+	evt.MaxRetries = 10_000 // far beyond the API-validated ceiling of 10
+
+	if err := execution.Handle(exec, evt); err == nil {
+		t.Fatal("expected error after exhausting the clamped retry ceiling, got nil")
+	}
+
+	const wantAttempts = 11 // maxAllowedRetries(10) + 1
+	if len(repo.creates) != wantAttempts {
+		t.Fatalf("expected max_retries to be clamped to a bounded number of attempts (%d), got %d", wantAttempts, len(repo.creates))
+	}
+}
+
+func TestHandle_Retry_BackoffRespectsShutdownCancellation(t *testing.T) {
+	repo := &mockRepo{}
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	exec := execution.NewWithRunners(nil, repo, logger, map[string]runners.TaskRunner{
+		"http": newSequenceRunner(fail("boom 1"), fail("boom 2")),
+	})
+	// Deliberately not overriding sleep here — this exercises the real,
+	// context-aware default backoff implementation.
+
+	shutdownCtx, cancel := context.WithCancel(context.Background())
+	cancel() // shutdown is already in progress before the first backoff wait
+
+	evt := triggerEvent("http")
+	evt.MaxRetries = 1
+
+	start := time.Now()
+	execution.HandleWithContext(exec, shutdownCtx, evt)
+	elapsed := time.Since(start)
+
+	if elapsed > 200*time.Millisecond {
+		t.Errorf("expected the 1s backoff to be cut short by an already-cancelled shutdown context, took %v", elapsed)
 	}
 }

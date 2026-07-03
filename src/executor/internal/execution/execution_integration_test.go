@@ -175,7 +175,7 @@ func TestIntegration_Handle_RetriesThenSucceeds_WritesOneRowPerAttempt(t *testin
 	exec := execution.NewWithRunners(nil, repo, newTestLogger(), map[string]runners.TaskRunner{
 		"http": runners.NewHTTPRunner(),
 	})
-	execution.SetSleep(exec, func(time.Duration) {}) // skip real backoff delay
+	execution.SetSleep(exec, func(context.Context, time.Duration) {}) // skip real backoff delay
 
 	evt := broker.TaskTriggerEvent{
 		TaskID:         taskID,
