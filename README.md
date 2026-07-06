@@ -22,9 +22,10 @@ Exercises the `cron` schedule type against real external side effects.
 **SaaS workflow** — expire unpaid orders after a fixed interval, generate monthly invoices on a cron expression, and send one-time confirmation emails at a scheduled timestamp.
 Exercises all three schedule types (`cron`, `interval`, `once`) together in a single domain.
 
-**Distributed load test** — spin up 1,000 tasks across all three schedule types and run multiple scheduler instances simultaneously.
-Measures dispatch latency, missed fires, and duplicate execution rate to prove `SELECT FOR UPDATE SKIP LOCKED` holds under concurrent load.
-Results visualised in a Grafana dashboard showing scheduler lag and execution history over time.
+**Distributed load test (done)** — 1,000 tasks across all three schedule types, 3 concurrent scheduler instances.
+Zero duplicate executions and zero missed fires across 1,990 trigger events, proving `SELECT FOR UPDATE SKIP LOCKED` holds under concurrent load; p99 dispatch latency 20.8ms.
+Full methodology and raw data in [docs/load-test.md](docs/load-test.md).
+A Grafana dashboard visualising scheduler lag over time is still planned.
 
 ---
 
