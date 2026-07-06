@@ -156,3 +156,43 @@ func TestIntegration_DeadLetterOnNack(t *testing.T) {
 		t.Error("expected message in DLQ after nack, got none after 5s")
 	}
 }
+
+// TestIntegration_DefaultConfigMatchesDockerComposeCredentials reproduces the
+// documented local-dev flow: a RabbitMQ instance provisioned exactly like
+// docker-compose.yaml (RABBITMQ_DEFAULT_USER/PASS=chronos), reached via
+// broker.DefaultConfig()'s real environment-variable fallback with only
+// RABBITMQ_HOST/PORT set — RABBITMQ_USER/PASSWORD deliberately left unset, so
+// this exercises the actual default credentials a fresh clone would use.
+func TestIntegration_DefaultConfigMatchesDockerComposeCredentials(t *testing.T) {
+	ctx := context.Background()
+
+	container, err := rabbitmq.Run(ctx, "rabbitmq:3.13-management-alpine",
+		rabbitmq.WithAdminUsername("chronos"),
+		rabbitmq.WithAdminPassword("chronos"),
+	)
+	if err != nil {
+		t.Fatalf("start rabbitmq container: %v", err)
+	}
+	defer container.Terminate(ctx)
+
+	host, err := container.Host(ctx)
+	if err != nil {
+		t.Fatalf("get container host: %v", err)
+	}
+	port, err := container.MappedPort(ctx, "5672")
+	if err != nil {
+		t.Fatalf("get container port: %v", err)
+	}
+
+	t.Setenv("RABBITMQ_URL", "")
+	t.Setenv("RABBITMQ_HOST", host)
+	t.Setenv("RABBITMQ_PORT", port.Port())
+	t.Setenv("RABBITMQ_USER", "")
+	t.Setenv("RABBITMQ_PASSWORD", "")
+
+	conn, err := broker.NewConnection(broker.DefaultConfig())
+	if err != nil {
+		t.Fatalf("expected broker.DefaultConfig() to connect using the same credentials docker-compose.yaml provisions the broker with, got: %v", err)
+	}
+	conn.Close()
+}
