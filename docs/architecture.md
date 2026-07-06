@@ -36,8 +36,8 @@ Each service has a clearly defined bounded context with specific database access
 ### Scheduler Service
 **Responsibility:** Time-based task scheduling and execution triggering  
 **Database Access:**
-- Read-only access to `tasks` table
-- No access to `execution_history` table
+- Full read/write access to the `tasks` table
+- Read-only access to `execution_history`
 
 **Operations:**
 - Poll for due tasks
