@@ -45,7 +45,6 @@ Each service has a clearly defined bounded context with specific database access
 - Calculate next execution times
 - Maintain in-memory scheduling state
 - Publish execution trigger events
-- Distributed locking (via Redis)
 
 ---
 
