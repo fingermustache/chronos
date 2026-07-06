@@ -86,6 +86,22 @@ func TestConfig_URLFromEnv(t *testing.T) {
 	}
 }
 
+func TestConfig_DefaultCredentialsMatchDockerCompose(t *testing.T) {
+	t.Setenv("RABBITMQ_URL", "")
+	t.Setenv("RABBITMQ_USER", "")
+	t.Setenv("RABBITMQ_PASSWORD", "")
+	cfg := broker.DefaultConfig()
+	// docker-compose.yaml provisions RabbitMQ with RABBITMQ_DEFAULT_USER/PASS
+	// = chronos; the image doesn't create a "guest" account once that's set,
+	// so the default here must match, not RabbitMQ's own "guest" default.
+	if cfg.User != "chronos" {
+		t.Errorf("expected default user %q, got %q", "chronos", cfg.User)
+	}
+	if cfg.Password != "chronos" {
+		t.Errorf("expected default password %q, got %q", "chronos", cfg.Password)
+	}
+}
+
 // --- Interface compliance (compile-time) ---
 // These assignments verify that the mock types below satisfy the interfaces.
 // If Publisher or Consumer interfaces change incompatibly, these lines fail to compile.

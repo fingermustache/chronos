@@ -19,6 +19,13 @@ type Config struct {
 // DefaultConfig loads broker configuration from environment variables.
 // RABBITMQ_URL takes precedence. Falls back to RABBITMQ_HOST, RABBITMQ_PORT,
 // RABBITMQ_USER, RABBITMQ_PASSWORD, and RABBITMQ_VHOST.
+//
+// User/Password default to "chronos", matching the credentials
+// docker-compose.yaml provisions the local-dev RabbitMQ container with
+// (RABBITMQ_DEFAULT_USER/PASS), not RabbitMQ's own "guest" default — the
+// image doesn't create a "guest" account at all once RABBITMQ_DEFAULT_USER
+// is overridden, so defaulting to "guest" here made local dev unusable out
+// of the box.
 func DefaultConfig() Config {
 	if url := os.Getenv("RABBITMQ_URL"); url != "" {
 		return Config{URL: url}
@@ -26,8 +33,8 @@ func DefaultConfig() Config {
 	return Config{
 		Host:     getEnv("RABBITMQ_HOST", "localhost"),
 		Port:     getEnv("RABBITMQ_PORT", "5672"),
-		User:     getEnv("RABBITMQ_USER", "guest"),
-		Password: getEnv("RABBITMQ_PASSWORD", "guest"),
+		User:     getEnv("RABBITMQ_USER", "chronos"),
+		Password: getEnv("RABBITMQ_PASSWORD", "chronos"),
 		Vhost:    getEnv("RABBITMQ_VHOST", "/"),
 	}
 }
