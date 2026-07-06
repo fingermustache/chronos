@@ -63,11 +63,6 @@ Each service has a clearly defined bounded context with specific database access
 
 ---
 
-### Notification Service
-**Responsibility:** Alert delivery  
-**Database Access:**
-- No database access (fully event-driven)
-
 **Operations:**
 - Listen to execution completion events
 - Send notifications via email, webhook, Slack
