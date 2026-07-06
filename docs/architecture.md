@@ -37,7 +37,6 @@ Each service has a clearly defined bounded context with specific database access
 **Responsibility:** Time-based task scheduling and execution triggering  
 **Database Access:**
 - Read-only access to `tasks` table
-- Limited write: can only update `next_execution_time` column
 - No access to `execution_history` table
 
 **Operations:**
