@@ -24,7 +24,7 @@ Each service has a clearly defined bounded context with specific database access
 **Responsibility:** Task management and user-facing API  
 **Database Access:**
 - Full read/write access to `tasks` table
-- No access to `execution_history` table
+- Read-only access to `execution_history` table
 
 **Operations:**
 - Create, read, update, delete tasks
@@ -36,8 +36,8 @@ Each service has a clearly defined bounded context with specific database access
 ### Scheduler Service
 **Responsibility:** Time-based task scheduling and execution triggering  
 **Database Access:**
-- Read-only access to `tasks` table
-- Limited write: can only update `next_execution_time` column
+- Read-only access to `tasks` table (polls and claims due tasks)
+- Limited write: only `next_execution_time` and `enabled` columns
 - No access to `execution_history` table
 
 **Operations:**
@@ -45,7 +45,6 @@ Each service has a clearly defined bounded context with specific database access
 - Calculate next execution times
 - Maintain in-memory scheduling state
 - Publish execution trigger events
-- Distributed locking (via Redis)
 
 ---
 
@@ -64,7 +63,7 @@ Each service has a clearly defined bounded context with specific database access
 
 ---
 
-### Notification Service
+### Notification Service *(Planned — not yet implemented)*
 **Responsibility:** Alert delivery  
 **Database Access:**
 - No database access (fully event-driven)
